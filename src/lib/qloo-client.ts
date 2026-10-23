@@ -163,7 +163,7 @@ export async function getInsights(
     }
 
     const entities = body.data.results as QlooEntity[];
-    return { success: true, data: { results: entities, meta: body.meta } };
+    return { success: true, data: { results: entities, meta: body.meta, query: body.data.query } };
   } catch (err) {
     return {
       success: false,

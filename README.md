@@ -13,13 +13,36 @@ CommonGround addresses the group decision problem: when friends, families, or
 colleagues have diverse tastes, finding activities everyone enjoys is hard.
 The app guides users through:
 
-1. **Group creation** — name the group and add members.
+1. **Group creation** — name the group, add members, and enter a destination city.
 2. **Member profiles** — each member lists cultural interests (music, movies,
-   food, books, etc.), budget preferences, and accessibility needs.
-3. **Discovery** — Qloo's Insights API analyzes cross-domain affinities across
-   the group's interests and retrieves candidate experiences.
-4. **Decision trace** (planned) — a transparent panel showing which evidence
-   informed each recommendation.
+   food, books, etc.) by searching Qloo's entity database. Budget preferences
+   and accessibility needs are also captured.
+3. **Discovery** — a bounded agent orchestrates per-member Qloo Insights queries
+   scoped to the destination, merges and deduplicates candidates, ranks them by
+   group consensus (70% member coverage + 30% rank support), optionally runs an
+   adaptive exploration pass, and finally runs a group-level Taste Bridge query
+   that combines all members' interests in a single request.
+4. **Decision trace** — a transparent panel showing each pipeline step with real
+   status, counts, and evidence references.
+
+### Taste Bridge
+
+Taste Bridge is CommonGround's group-level discovery layer. After per-member
+retrieval completes, the agent makes one additional Qloo Insights request using
+a balanced, deduplicated set of up to 12 resolved entity IDs (max 3 per member)
+from across the group. This surfaces destination-specific places that individual
+member queries may not find. Key properties:
+
+- **Exactly one** group-level request per discovery run (when 2+ members have
+  resolved interests).
+- Results are kept **completely separate** from Shared/Individual consensus
+  candidates — they never inflate shared counts, coverage, or consensus scores.
+- When Qloo returns explainability data, contributing input interests are mapped
+  back to the specific members whose tastes drove the recommendation.
+- If the request fails, member-specific results remain fully available, and a
+  retry button re-runs only the group-level operation.
+- The destination is always preserved — Taste Bridge never falls back to global
+  results when a destination is set.
 
 ## Architecture
 
@@ -31,8 +54,8 @@ The app guides users through:
   - `src/types/` — domain models (group, cultural, discovery, Qloo).
   - `src/components/` — UI components (Landing, GroupCreation, DiscoveryWorkspace).
   - `src/lib/` — Supabase client and Qloo proxy client.
-  - `src/services/` — discovery orchestrator interfaces (for later phases).
-  - `src/test/` — automated tests.
+  - `src/services/` — discovery orchestrator agent and interfaces.
+  - `src/test/` — automated tests (219 tests across 8 suites).
 
 ### Backend
 
@@ -46,37 +69,47 @@ The app guides users through:
 The Qloo Insights API is called exclusively through the `qloo-proxy` edge
 function. The frontend never sends API keys or calls Qloo directly.
 
-**Verified Qloo API details (Phase 1.5 — live verified):**
+**Verified Qloo API details:**
 - Hackathon Base URL: `https://hackathon.api.qloo.com`
-  (Ref: https://qloo-hackathon.devpost.com/forum_topics/41339)
 - Authentication: `X-Api-Key` header (not Bearer, not query param)
 - Insights endpoint: `GET /v2/insights` — taste-based recommendations
-  - Response shape: `{ success: true, results: { entities: [...] } }`
+  - Response shape: `{ success: true, results: { entities: [...] }, query: { ... } }`
+  - The `query` object may contain `explainability` data with
+    `signal.interests.entities.effect_on_all_recs` mapping input entities to
+    influence scores.
   - Entity identifier field: `entity_id`
-  - Requires at least one signal or filter (e.g. `filter.tags` or `signal.interests.entities`)
+  - Requires at least one signal or filter
 - Search endpoint: `GET /search` — entity lookup by name
   - Response shape: `{ results: [...] }`
   - Entity identifier field: `entity_id`
-  - Uses `type` (singular) parameter per hackathon organizer's example
 - Docs: https://docs.qloo.com/reference/insights-api-deep-dive
   and https://docs.qloo.com/reference/get-search
-
-**Live verification (2026-10-23):**
-- Search: VERIFIED — query "jazz" with type `urn:entity:artist` returned 3 real
-  entities (Jazzanova, Jazzamor, Jazz Liberatorz) from `/search` (HTTP 200).
-- Insights: VERIFIED — `filter.type=urn:entity:place` with
-  `filter.tags=urn:tag:genre:place:restaurant:italian` returned 3 real entities
-  (Terraço Itália, Bocconcino, Eataly Flatiron) from `/v2/insights` (HTTP 200).
 
 The edge function implements:
 - Server-side API key reading from `QLOO_API_KEY` secret.
 - Request validation and parameter forwarding.
 - 10-second timeout per request.
 - Bounded retries (2 max) with exponential backoff on 429/5xx.
-- Response validation (must contain `results` array).
-- Normalized error handling for: missing config, auth failure, rate limit,
-  network, invalid response, not found, bad request, server error.
+- Response validation and normalized error handling.
+- Pass-through of `query` (including explainability) to the client.
 - No fabricated results — failures return error states.
+
+### Discovery agent pipeline
+
+The agent (`src/services/discovery-agent.ts`) runs a deterministic pipeline:
+
+1. **Assess & plan** — evaluates resolved vs. unresolved interests, builds a
+   per-member retrieval plan.
+2. **Per-member retrieval** — concurrent Qloo Insights queries (max 3 entities
+   per member, bounded to 3 concurrent requests), scoped to the destination.
+3. **Merge & normalize** — deduplicates candidates by entity ID.
+4. **Consensus ranking** — scores each candidate by member coverage (70%) and
+   rank support (30%).
+5. **Adaptive exploration** — if coverage is low, retries weak members with
+   unused entity IDs.
+6. **Taste Bridge** — one group-level query with combined interests (max 12 IDs).
+7. **Finalize** — produces typed outcome with ranked candidates, trace, warnings,
+   and Taste Bridge results.
 
 ## Environment variables
 
@@ -114,7 +147,7 @@ See `.env.example` for placeholder templates.
    ```
 
 3. Configure the `QLOO_API_KEY` edge function secret (in the Supabase dashboard
-   or via `mcp__supabase__list_edge_function_secrets` to verify).
+   or via the Supabase MCP tools).
 
 4. Run the dev server:
    ```
@@ -147,43 +180,39 @@ CommonGround deploys via Bolt's hosting. The edge function is deployed using
 the Supabase MCP tools. No additional external services are required beyond
 Supabase (included) and a Qloo API key (server-side secret).
 
-## Capabilities — complete vs. planned
+## Capabilities
 
-### Complete (Phase 1)
+### Complete
 
 - [x] Polished, responsive landing page with editorial design.
-- [x] Guided group-creation flow (name → members → review).
-- [x] Member profile interface with cultural interests, budget, accessibility.
-- [x] Qloo entity search during interest entry (real API calls via proxy).
-- [x] Discovery workspace with Qloo connection verification.
+- [x] Guided 4-step group-creation flow (name → members → destination → review).
+- [x] Member profile interface with Qloo entity search, budget, accessibility.
+- [x] Discovery agent with per-member Qloo Insights retrieval.
+- [x] Consensus ranking (70% member coverage + 30% rank support).
+- [x] Adaptive exploration pass for low-coverage results.
+- [x] Taste Bridge group-level discovery with explainability mapping.
+- [x] All, Shared, Individual, and Taste Bridge filter views.
+- [x] Decision trace panel with live execution updates.
 - [x] Server-side Qloo proxy edge function with auth, retries, validation.
 - [x] Normalized error handling (no fabricated results).
-- [x] Decision trace panel design (structural preview).
-- [x] Domain type definitions for all core models.
-- [x] Discovery orchestrator interfaces for later phases.
-- [x] Automated tests for domain models, Qloo types, error normalization.
+- [x] Image handling with graceful fallbacks.
+- [x] 219 automated tests across 8 test suites.
 - [x] README and `.env.example`.
 
-### Planned (later phases)
+### Planned
 
-- [ ] Entity resolution (matching user input to Qloo entities at scale).
-- [ ] Group preference comparison across members.
-- [ ] Consensus ranking with explicit scoring inputs.
-- [ ] Experience planning (itineraries, logistics).
-- [ ] Full decision trace generation with explainability data.
 - [ ] Database persistence of groups and discovery runs.
 - [ ] Multi-user authentication.
+- [ ] Experience planning (itineraries, logistics).
 
-## Remaining limitations
+## Known limitations
 
 - Group and member data is held in browser state (not yet persisted to the
-  database). Phase 2 will add Supabase persistence.
+  database). Refreshing the page resets the session.
 - Entity resolution is limited to the search endpoint's fuzzy matching.
-  Full resolution with disambiguation is planned.
-- Consensus ranking is not yet implemented — candidates are shown in
-  Qloo's affinity order only.
-- The decision trace panel shows a structural preview; full trace generation
-  requires the agent orchestration layer (Phase 2+).
+- Qloo explainability data availability depends on the API response — when not
+  returned, the UI shows a "per-interest explanation was not returned" note
+  rather than fabricating evidence.
 
 ## Tech stack
 
@@ -193,3 +222,7 @@ Supabase (included) and a Qloo API key (server-side secret).
 - Qloo Insights API v2
 - Vitest (testing)
 - Lucide React (icons)
+
+## License
+
+MIT
