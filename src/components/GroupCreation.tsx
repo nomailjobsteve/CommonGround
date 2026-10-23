@@ -5,7 +5,7 @@ import { BUDGET_OPTIONS } from '@/types/group';
 import type { CulturalInterest, CulturalCategory } from '@/types/cultural';
 import { CULTURAL_CATEGORY_LABELS, SEARCHABLE_ENTITY_TYPES } from '@/types/cultural';
 import type { QlooEntity } from '@/types/qloo';
-import { StepIndicator, ErrorBanner, Spinner } from '@/components/ui';
+import { StepIndicator, ErrorBanner, Spinner, ImageWithFallback } from '@/components/ui';
 import { searchEntities } from '@/lib/qloo-client';
 
 
@@ -582,18 +582,14 @@ function MemberCard({ member, index, canRemove, onUpdate, onRemove }: MemberCard
                     onClick={() => handleSelectResult(result)}
                     className="flex w-full items-start gap-3 px-3 py-2.5 text-left hover:bg-ocean-50 transition-colors focus:bg-ocean-50 focus:outline-none"
                   >
-                    {result.image ? (
-                      <img
-                        src={result.image}
-                        alt=""
-                        className="h-10 w-10 shrink-0 rounded object-cover"
-                        onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }}
-                      />
-                    ) : (
-                      <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded bg-ink-100">
-                        <Search size={14} className="text-ink-300" />
-                      </div>
-                    )}
+                    <ImageWithFallback
+                      src={result.image}
+                      alt={result.name}
+                      category={result.category}
+                      className="h-10 w-10 shrink-0"
+                      rounded="rounded-lg"
+                      iconSize={16}
+                    />
                     <div className="flex-1 min-w-0">
                       <p className="text-sm font-medium text-ink-900 truncate">{result.name}</p>
                       {result.description && (

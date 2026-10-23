@@ -7,7 +7,7 @@ import {
 import type { Group } from '@/types/group';
 import type { AgentStep, DiscoveryOutcome, RankedCandidate } from '@/types/discovery';
 import { runDiscovery } from '@/services/discovery-agent';
-import { ErrorBanner, EmptyState, Badge, Spinner } from '@/components/ui';
+import { ErrorBanner, EmptyState, Badge, Spinner, ImageWithFallback, SkeletonCard } from '@/components/ui';
 
 interface DiscoveryWorkspaceProps {
   group: Group;
@@ -72,6 +72,9 @@ export function DiscoveryWorkspace({ group, onBack }: DiscoveryWorkspaceProps) {
     else if (filterMode === 'individual') list = individualCandidates;
     return sortCandidates(list, sortMode);
   })();
+
+  const topCandidate = allCandidates.length > 0 ? allCandidates[0] : null;
+  const restCandidates = filteredCandidates.filter((c) => c !== topCandidate || filterMode !== 'all');
 
   return (
     <div className="mx-auto max-w-5xl px-6 py-12 animate-fade-in">
@@ -142,8 +145,8 @@ export function DiscoveryWorkspace({ group, onBack }: DiscoveryWorkspaceProps) {
       {/* Idle state — start discovery */}
       {state.status === 'idle' && (
         <div className="card text-center">
-          <div className="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-full bg-ocean-100">
-            <Sparkles className="text-ocean-600" size={24} />
+          <div className="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-full bg-accent-100">
+            <Sparkles className="text-accent-600" size={24} />
           </div>
           <h3 className="text-lg font-medium text-ink-900">Discover shared experiences in {group.destination || 'your area'}</h3>
           <p className="mx-auto mt-2 max-w-md text-sm text-ink-500">
@@ -157,7 +160,7 @@ export function DiscoveryWorkspace({ group, onBack }: DiscoveryWorkspaceProps) {
         </div>
       )}
 
-      {/* Running state — live trace */}
+      {/* Running state — live trace + skeletons */}
       {state.status === 'running' && (
         <div className="space-y-6">
           <div className="card flex items-center gap-3">
@@ -167,6 +170,10 @@ export function DiscoveryWorkspace({ group, onBack }: DiscoveryWorkspaceProps) {
                 ? state.trace[state.trace.length - 1].explanation
                 : 'Starting...'}
             </span>
+          </div>
+          <div className="grid gap-4 sm:grid-cols-2">
+            <SkeletonCard />
+            <SkeletonCard />
           </div>
           <LiveTracePanel steps={state.trace} />
         </div>
@@ -209,10 +216,10 @@ export function DiscoveryWorkspace({ group, onBack }: DiscoveryWorkspaceProps) {
 
           {/* Warnings */}
           {state.outcome.warnings.length > 0 && (
-            <div className="rounded-lg border border-yellow-200 bg-yellow-50 p-4">
+            <div className="rounded-lg border border-warning-200 bg-warning-50 p-4">
               <div className="flex items-start gap-2">
-                <AlertTriangle size={16} className="mt-0.5 text-yellow-600" />
-                <div className="text-sm text-yellow-800">
+                <AlertTriangle size={16} className="mt-0.5 text-warning-600" />
+                <div className="text-sm text-warning-800">
                   {state.outcome.warnings.map((w, i) => (
                     <p key={i}>{w}</p>
                   ))}
@@ -241,10 +248,14 @@ export function DiscoveryWorkspace({ group, onBack }: DiscoveryWorkspaceProps) {
             </div>
           </div>
 
+          {/* Featured top recommendation */}
+          {topCandidate && filterMode === 'all' && (
+            <FeaturedCandidate candidate={topCandidate} expanded={expandedId === topCandidate.entityId} onToggle={() => setExpandedId(expandedId === topCandidate.entityId ? null : topCandidate.entityId)} />
+          )}
+
           {/* Filter + Sort controls */}
           {allCandidates.length > 0 && (
             <div className="flex flex-wrap items-center justify-between gap-4">
-              {/* Filter */}
               <div className="flex items-center gap-2">
                 <span className="text-sm text-ink-500">Show:</span>
                 <div className="flex gap-2">
@@ -267,7 +278,6 @@ export function DiscoveryWorkspace({ group, onBack }: DiscoveryWorkspaceProps) {
                   ))}
                 </div>
               </div>
-              {/* Sort */}
               <div className="flex items-center gap-2">
                 <span className="text-sm text-ink-500">Sort by:</span>
                 <div className="flex gap-2">
@@ -291,10 +301,10 @@ export function DiscoveryWorkspace({ group, onBack }: DiscoveryWorkspaceProps) {
 
           {/* No shared candidates message */}
           {filterMode === 'shared' && sharedCandidates.length === 0 && individualCandidates.length > 0 && (
-            <div className="rounded-lg border border-yellow-200 bg-yellow-50 p-4">
+            <div className="rounded-lg border border-warning-200 bg-warning-50 p-4">
               <div className="flex items-start gap-2">
-                <AlertTriangle size={16} className="mt-0.5 text-yellow-600" />
-                <div className="text-sm text-yellow-800">
+                <AlertTriangle size={16} className="mt-0.5 text-warning-600" />
+                <div className="text-sm text-warning-800">
                   <p className="font-medium">No shared candidates found</p>
                   <p className="mt-1">
                     Qloo found individual discoveries for this group, but the current results
@@ -306,10 +316,10 @@ export function DiscoveryWorkspace({ group, onBack }: DiscoveryWorkspaceProps) {
             </div>
           )}
 
-          {/* Ranked candidates */}
+          {/* Candidate grid */}
           {filteredCandidates.length > 0 ? (
-            <div className="space-y-4">
-              {filteredCandidates.map((candidate) => (
+            <div className="grid gap-4 sm:grid-cols-2">
+              {(filterMode === 'all' ? restCandidates : filteredCandidates).map((candidate) => (
                 <CandidateCard
                   key={candidate.entityId}
                   candidate={candidate}
@@ -385,6 +395,129 @@ function runStatusLabel(status: string): string {
   }
 }
 
+// ─── Featured candidate (top result) ───────────────────────────────
+
+function FeaturedCandidate({
+  candidate,
+  expanded,
+  onToggle,
+}: {
+  candidate: RankedCandidate;
+  expanded: boolean;
+  onToggle: () => void;
+}) {
+  const coveragePct = Math.round(candidate.memberCoverage * 100);
+  const evidenceMembers = [...new Set(candidate.evidence.map((e) => e.memberName))];
+
+  return (
+    <div className="overflow-hidden rounded-2xl border border-ink-100 bg-white shadow-md transition-all hover:shadow-lg">
+      <div className="grid md:grid-cols-2">
+        {/* Image */}
+        <div className="relative h-56 md:h-full min-h-[220px]">
+          <ImageWithFallback
+            src={candidate.image}
+            alt={candidate.name}
+            category={candidate.category}
+            className="h-full w-full"
+            rounded="rounded-none"
+            iconSize={40}
+          />
+          <div className="absolute left-4 top-4 flex items-center gap-2">
+            <div className="flex h-9 w-9 items-center justify-center rounded-full bg-ink-900 text-sm font-bold text-ink-50 shadow-lg">
+              {candidate.rank}
+            </div>
+            {candidate.isShared ? (
+              <span className="flex items-center gap-1 rounded-full bg-accent-600 px-3 py-1 text-xs font-medium text-white shadow-lg">
+                <Users2 size={12} /> Top match
+              </span>
+            ) : (
+              <span className="flex items-center gap-1 rounded-full bg-ink-700 px-3 py-1 text-xs font-medium text-ink-50 shadow-lg">
+                <User size={12} /> Top result
+              </span>
+            )}
+          </div>
+        </div>
+
+        {/* Content */}
+        <div className="flex flex-col p-6">
+          <div>
+            <h3 className="text-xl font-medium text-ink-900">{candidate.name}</h3>
+            <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-ink-400">
+              <span className="capitalize">
+                {candidate.category.replace('urn:entity:', '').replace(/_/g, ' ')}
+              </span>
+              {candidate.city && (
+                <span className="flex items-center gap-0.5">
+                  <MapPin size={10} /> {candidate.city}
+                  {candidate.metro && candidate.metro !== candidate.city && ` (${candidate.metro})`}
+                </span>
+              )}
+            </div>
+          </div>
+
+          {candidate.description && (
+            <p className="mt-3 text-sm leading-relaxed text-ink-600 line-clamp-3">
+              {candidate.description}
+            </p>
+          )}
+
+          {/* Score bar */}
+          <div className="mt-4">
+            <div className="flex items-center justify-between text-xs text-ink-400 mb-1">
+              <span>Member coverage</span>
+              <span>{coveragePct}%</span>
+            </div>
+            <div className="h-2.5 rounded-full bg-ink-100 overflow-hidden">
+              <div
+                className="h-full rounded-full bg-accent-500 transition-all duration-700"
+                style={{ width: `${coveragePct}%` }}
+              />
+            </div>
+          </div>
+
+          {/* Evidence tags */}
+          <div className="mt-4 flex flex-wrap gap-1.5">
+            {evidenceMembers.map((name) => (
+              <span key={name} className="rounded-full bg-ocean-100 px-2.5 py-0.5 text-xs text-ocean-700">
+                <Search size={10} className="inline mr-1" />
+                {name}
+              </span>
+            ))}
+            {candidate.qlooAffinity !== null && candidate.qlooAffinity !== undefined && (
+              <span className="rounded-full bg-ink-100 px-2.5 py-0.5 text-xs text-ink-500">
+                Qloo affinity: {candidate.qlooAffinity.toFixed(2)}
+              </span>
+            )}
+            <Badge variant="accent">
+              {(candidate.consensusScore * 100).toFixed(0)}% consensus
+            </Badge>
+            <span className="text-xs text-ink-400">
+              {candidate.memberCount}/{candidate.totalMembersWithResults} members
+            </span>
+          </div>
+
+          {/* Expand */}
+          <button
+            onClick={onToggle}
+            className="mt-auto flex items-center gap-1 pt-4 text-xs font-medium text-ink-500 hover:text-ink-700 transition-colors"
+          >
+            {expanded ? (
+              <><ChevronUp size={14} /> Hide evidence</>
+            ) : (
+              <><ChevronDown size={14} /> Show evidence & metrics</>
+            )}
+          </button>
+        </div>
+      </div>
+
+      {/* Expanded evidence */}
+      {expanded && (
+        <EvidencePanel candidate={candidate} coveragePct={coveragePct} evidenceMembers={evidenceMembers} />
+      )}
+    </div>
+  );
+}
+
 // ─── Candidate card ─────────────────────────────────────────────────
 
 function CandidateCard({
@@ -397,169 +530,192 @@ function CandidateCard({
   onToggle: () => void;
 }) {
   const coveragePct = Math.round(candidate.memberCoverage * 100);
-  const evidenceMembers = candidate.evidence.map((e) => e.memberName);
-  const uniqueEvidenceMembers = [...new Set(evidenceMembers)];
+  const evidenceMembers = [...new Set(candidate.evidence.map((e) => e.memberName))];
 
   return (
     <div className="card overflow-hidden">
-      <div className="flex items-start gap-4">
-        {/* Rank badge */}
-        <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-ink-900 text-ink-50">
-          <span className="text-sm font-bold">{candidate.rank}</span>
+      {/* Image header */}
+      <div className="relative h-44 overflow-hidden">
+        <ImageWithFallback
+          src={candidate.image}
+          alt={candidate.name}
+          category={candidate.category}
+          className="h-full w-full"
+          rounded="rounded-none"
+          iconSize={32}
+        />
+        <div className="absolute left-3 top-3 flex h-8 w-8 items-center justify-center rounded-full bg-ink-900 text-xs font-bold text-ink-50 shadow-md">
+          {candidate.rank}
         </div>
+        <div className="absolute right-3 top-3">
+          {candidate.isShared ? (
+            <span className="flex items-center gap-1 rounded-full bg-accent-600 px-2.5 py-0.5 text-xs font-medium text-white shadow-md">
+              <Users2 size={10} /> Shared
+            </span>
+          ) : (
+            <span className="flex items-center gap-1 rounded-full bg-ink-700 px-2.5 py-0.5 text-xs font-medium text-ink-50 shadow-md">
+              <User size={10} /> Individual
+            </span>
+          )}
+        </div>
+      </div>
 
-        {/* Main content */}
-        <div className="flex-1 min-w-0">
-          <div className="flex items-start justify-between gap-2">
-            <div>
-              <h4 className="font-medium text-ink-900">{candidate.name}</h4>
-              <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-ink-400">
-                <span className="capitalize">
-                  {candidate.category.replace('urn:entity:', '').replace(/_/g, ' ')}
-                </span>
-                {candidate.city && (
-                  <span className="flex items-center gap-0.5">
-                    <MapPin size={10} /> {candidate.city}
-                    {candidate.metro && candidate.metro !== candidate.city && ` (${candidate.metro})`}
-                  </span>
-                )}
-                {candidate.entityId && <span>· ID: {candidate.entityId.slice(0, 8)}</span>}
-              </div>
-            </div>
-            <div className="flex flex-col items-end gap-1">
-              <Badge variant="accent">
-                {(candidate.consensusScore * 100).toFixed(0)}% consensus
-              </Badge>
-              <span className="text-xs text-ink-400">
-                {candidate.memberCount}/{candidate.totalMembersWithResults} members
+      {/* Content */}
+      <div className="mt-4">
+        <div className="flex items-start justify-between gap-2">
+          <div className="min-w-0">
+            <h4 className="font-medium text-ink-900 truncate">{candidate.name}</h4>
+            <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-ink-400">
+              <span className="capitalize">
+                {candidate.category.replace('urn:entity:', '').replace(/_/g, ' ')}
               </span>
-              {candidate.isShared ? (
-                <span className="flex items-center gap-1 text-xs text-accent-600">
-                  <Users2 size={10} /> Shared
-                </span>
-              ) : (
-                <span className="flex items-center gap-1 text-xs text-ink-400">
-                  <User size={10} /> Individual
+              {candidate.city && (
+                <span className="flex items-center gap-0.5">
+                  <MapPin size={10} /> {candidate.city}
                 </span>
               )}
             </div>
           </div>
-
-          {candidate.description && (
-            <p className={`mt-2 text-sm text-ink-500 ${expanded ? '' : 'line-clamp-2'}`}>
-              {candidate.description}
-            </p>
-          )}
-
-          {/* Coverage bar */}
-          <div className="mt-3">
-            <div className="flex items-center justify-between text-xs text-ink-400 mb-1">
-              <span>Member coverage</span>
-              <span>{coveragePct}%</span>
-            </div>
-            <div className="h-2 rounded-full bg-ink-100 overflow-hidden">
-              <div
-                className="h-full rounded-full bg-accent-500 transition-all duration-500"
-                style={{ width: `${coveragePct}%` }}
-              />
-            </div>
+          <div className="flex flex-col items-end gap-1 shrink-0">
+            <Badge variant="accent">
+              {(candidate.consensusScore * 100).toFixed(0)}%
+            </Badge>
+            <span className="text-xs text-ink-400">
+              {candidate.memberCount}/{candidate.totalMembersWithResults}
+            </span>
           </div>
-
-          {/* Quick evidence tags */}
-          <div className="mt-3 flex flex-wrap gap-1.5">
-            {uniqueEvidenceMembers.map((name) => (
-              <span key={name} className="rounded-full bg-ocean-100 px-2 py-0.5 text-xs text-ocean-700">
-                <Search size={10} className="inline mr-1" />
-                {name}
-              </span>
-            ))}
-            {candidate.qlooAffinity !== null && candidate.qlooAffinity !== undefined && (
-              <span className="rounded-full bg-ink-100 px-2 py-0.5 text-xs text-ink-500">
-                Qloo affinity: {candidate.qlooAffinity.toFixed(2)}
-              </span>
-            )}
-          </div>
-
-          {/* Expand/collapse */}
-          <button
-            onClick={onToggle}
-            className="mt-3 flex items-center gap-1 text-xs font-medium text-ink-500 hover:text-ink-700 transition-colors"
-          >
-            {expanded ? (
-              <><ChevronUp size={14} /> Hide evidence</>
-            ) : (
-              <><ChevronDown size={14} /> Show evidence & metrics</>
-            )}
-          </button>
         </div>
+
+        {candidate.description && (
+          <p className="mt-2 text-sm text-ink-500 line-clamp-2">
+            {candidate.description}
+          </p>
+        )}
+
+        {/* Coverage bar */}
+        <div className="mt-3">
+          <div className="flex items-center justify-between text-xs text-ink-400 mb-1">
+            <span>Member coverage</span>
+            <span>{coveragePct}%</span>
+          </div>
+          <div className="h-2 rounded-full bg-ink-100 overflow-hidden">
+            <div
+              className="h-full rounded-full bg-accent-500 transition-all duration-500"
+              style={{ width: `${coveragePct}%` }}
+            />
+          </div>
+        </div>
+
+        {/* Evidence tags */}
+        <div className="mt-3 flex flex-wrap gap-1.5">
+          {evidenceMembers.map((name) => (
+            <span key={name} className="rounded-full bg-ocean-100 px-2 py-0.5 text-xs text-ocean-700">
+              <Search size={10} className="inline mr-1" />
+              {name}
+            </span>
+          ))}
+          {candidate.qlooAffinity !== null && candidate.qlooAffinity !== undefined && (
+            <span className="rounded-full bg-ink-100 px-2 py-0.5 text-xs text-ink-500">
+              Qloo affinity: {candidate.qlooAffinity.toFixed(2)}
+            </span>
+          )}
+        </div>
+
+        {/* Expand/collapse */}
+        <button
+          onClick={onToggle}
+          className="mt-3 flex items-center gap-1 text-xs font-medium text-ink-500 hover:text-ink-700 transition-colors"
+        >
+          {expanded ? (
+            <><ChevronUp size={14} /> Hide evidence</>
+          ) : (
+            <><ChevronDown size={14} /> Show evidence & metrics</>
+          )}
+        </button>
       </div>
 
       {/* Expanded evidence panel */}
       {expanded && (
-        <div className="mt-4 border-t border-ink-100 pt-4 animate-slide-down">
-          {/* Metrics breakdown */}
-          <div className="grid gap-4 sm:grid-cols-3 mb-4">
-            <MetricBox
-              label="Member coverage"
-              value={`${coveragePct}%`}
-              detail={`${candidate.memberCount} of ${candidate.totalMembersWithResults} members with results`}
-            />
-            <MetricBox
-              label="Rank support"
-              value={candidate.rankSupport.toFixed(3)}
-              detail="Average position weight across member queries"
-            />
-            <MetricBox
-              label="Consensus score"
-              value={candidate.consensusScore.toFixed(3)}
-              detail="70% coverage + 30% rank support (CommonGround derived)"
-            />
-          </div>
+        <EvidencePanel candidate={candidate} coveragePct={coveragePct} evidenceMembers={evidenceMembers} />
+      )}
+    </div>
+  );
+}
 
-          {/* Per-member evidence table */}
-          <div className="rounded-lg border border-ink-100">
-            <div className="border-b border-ink-100 bg-ink-50 px-3 py-2 text-xs font-medium text-ink-600">
-              <Layers size={12} className="inline mr-1" />
-              Retrieval evidence ({candidate.evidence.length} appearance(s))
-            </div>
-            <div className="divide-y divide-ink-100">
-              {candidate.evidence.map((ev, i) => (
-                <div key={i} className="flex items-center justify-between px-3 py-2 text-xs">
-                  <span className="text-ink-700">{ev.memberName}</span>
-                  <div className="flex items-center gap-3 text-ink-400">
-                    <span>Pass {ev.passNumber}</span>
-                    <span>Rank #{ev.rankInMemberList + 1}</span>
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
+// ─── Shared evidence panel (used by both FeaturedCandidate and CandidateCard) ──
 
-          {/* Qloo explainability */}
-          {candidate.qlooExplainability != null && (
-            <div className="mt-3 rounded-lg border border-ocean-100 bg-ocean-50 p-3">
-              <div className="flex items-center gap-1 text-xs font-medium text-ocean-700">
-                <Info size={12} /> Qloo explainability
+function EvidencePanel({
+  candidate,
+  coveragePct,
+  evidenceMembers,
+}: {
+  candidate: RankedCandidate;
+  coveragePct: number;
+  evidenceMembers: string[];
+}) {
+  return (
+    <div className="mt-4 border-t border-ink-100 pt-4 animate-slide-down">
+      {/* Metrics breakdown */}
+      <div className="grid gap-4 sm:grid-cols-3 mb-4">
+        <MetricBox
+          label="Member coverage"
+          value={`${coveragePct}%`}
+          detail={`${candidate.memberCount} of ${candidate.totalMembersWithResults} members with results`}
+        />
+        <MetricBox
+          label="Rank support"
+          value={candidate.rankSupport.toFixed(3)}
+          detail="Average position weight across member queries"
+        />
+        <MetricBox
+          label="Consensus score"
+          value={candidate.consensusScore.toFixed(3)}
+          detail="70% coverage + 30% rank support (CommonGround derived)"
+        />
+      </div>
+
+      {/* Per-member evidence table */}
+      <div className="rounded-lg border border-ink-100">
+        <div className="border-b border-ink-100 bg-ink-50 px-3 py-2 text-xs font-medium text-ink-600">
+          <Layers size={12} className="inline mr-1" />
+          Retrieval evidence ({candidate.evidence.length} appearance(s))
+        </div>
+        <div className="divide-y divide-ink-100">
+          {candidate.evidence.map((ev, i) => (
+            <div key={i} className="flex items-center justify-between px-3 py-2 text-xs">
+              <span className="text-ink-700">{ev.memberName}</span>
+              <div className="flex items-center gap-3 text-ink-400">
+                <span>Pass {ev.passNumber}</span>
+                <span>Rank #{ev.rankInMemberList + 1}</span>
               </div>
-              <p className="mt-1 text-xs text-ocean-600">
-                Qloo provided explainability data for this recommendation, indicating
-                which input entities contributed to the match.
-              </p>
             </div>
-          )}
+          ))}
+        </div>
+      </div>
 
-          {/* Retrieval path (fallback explanation) */}
-          {candidate.qlooExplainability == null && (
-            <div className="mt-3 rounded-lg border border-ink-100 bg-ink-50 p-3">
-              <p className="text-xs text-ink-400">
-                <Info size={12} className="inline mr-1" />
-                This candidate was surfaced by {uniqueEvidenceMembers.length} member-specific
-                Qloo Insights {candidate.evidence.length > 1 ? 'queries' : 'query'}.
-                No Qloo explainability data was returned for this result.
-                Coverage and rank support are CommonGround's derived metrics, not Qloo scores.
-              </p>
-            </div>
-          )}
+      {/* Qloo explainability */}
+      {candidate.qlooExplainability != null && (
+        <div className="mt-3 rounded-lg border border-ocean-100 bg-ocean-50 p-3">
+          <div className="flex items-center gap-1 text-xs font-medium text-ocean-700">
+            <Info size={12} /> Qloo explainability
+          </div>
+          <p className="mt-1 text-xs text-ocean-600">
+            Qloo provided explainability data for this recommendation, indicating
+            which input entities contributed to the match.
+          </p>
+        </div>
+      )}
+
+      {/* Retrieval path (fallback explanation) */}
+      {candidate.qlooExplainability == null && (
+        <div className="mt-3 rounded-lg border border-ink-100 bg-ink-50 p-3">
+          <p className="text-xs text-ink-400">
+            <Info size={12} className="inline mr-1" />
+            This candidate was surfaced by {evidenceMembers.length} member-specific
+            Qloo Insights {candidate.evidence.length > 1 ? 'queries' : 'query'}.
+            No Qloo explainability data was returned for this result.
+            Coverage and rank support are CommonGround's derived metrics, not Qloo scores.
+          </p>
         </div>
       )}
     </div>
@@ -597,24 +753,24 @@ function DecisionTracePanel({ steps }: { steps: AgentStep[] }) {
               step.status === 'completed'
                 ? 'border-accent-200 bg-accent-50'
                 : step.status === 'failed'
-                  ? 'border-red-200 bg-red-50'
+                  ? 'border-error-200 bg-error-50'
                   : step.status === 'running'
                     ? 'border-ocean-200 bg-ocean-50'
-                    : step.status === 'skipped'
-                      ? 'border-ink-100 bg-ink-50'
-                      : 'border-ink-100 bg-ink-50'
+                    : 'border-ink-100 bg-ink-50'
             }`}
           >
             <div className="flex items-center gap-2">
               {step.status === 'running' && <Loader2 size={14} className="animate-spin text-ocean-600" />}
+              {step.status === 'completed' && <CheckCircle2 size={14} className="text-accent-600" />}
+              {step.status === 'failed' && <AlertCircle size={14} className="text-error-500" />}
               <span className="text-sm font-medium text-ink-700">
                 {step.stepType.replace(/_/g, ' ')}
               </span>
               <span className={`text-xs uppercase tracking-wide ${
                 step.status === 'completed' ? 'text-accent-600' :
-                step.status === 'failed' ? 'text-red-600' :
+                step.status === 'failed' ? 'text-error-600' :
                 step.status === 'running' ? 'text-ocean-600' :
-                step.status === 'skipped' ? 'text-ink-400' : 'text-ink-400'
+                'text-ink-400'
               }`}>
                 {step.status}
               </span>
@@ -656,7 +812,7 @@ function LiveTracePanel({ steps }: { steps: AgentStep[] }) {
               step.status === 'completed'
                 ? 'border-accent-200 bg-accent-50'
                 : step.status === 'failed'
-                  ? 'border-red-200 bg-red-50'
+                  ? 'border-error-200 bg-error-50'
                   : step.status === 'running'
                     ? 'border-ocean-200 bg-ocean-50'
                     : 'border-ink-100 bg-ink-50'
@@ -665,13 +821,13 @@ function LiveTracePanel({ steps }: { steps: AgentStep[] }) {
             <div className="flex items-center gap-2">
               {step.status === 'running' && <Loader2 size={14} className="animate-spin text-ocean-600" />}
               {step.status === 'completed' && <CheckCircle2 size={14} className="text-accent-600" />}
-              {step.status === 'failed' && <AlertCircle size={14} className="text-red-600" />}
+              {step.status === 'failed' && <AlertCircle size={14} className="text-error-500" />}
               <span className="text-sm font-medium text-ink-700">
                 {step.stepType.replace(/_/g, ' ')}
               </span>
               <span className={`text-xs uppercase tracking-wide ${
                 step.status === 'completed' ? 'text-accent-600' :
-                step.status === 'failed' ? 'text-red-600' :
+                step.status === 'failed' ? 'text-error-600' :
                 step.status === 'running' ? 'text-ocean-600' : 'text-ink-400'
               }`}>
                 {step.status}

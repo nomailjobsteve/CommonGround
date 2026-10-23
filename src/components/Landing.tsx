@@ -1,37 +1,49 @@
-import { Compass, Users, Sparkles, ArrowRight } from 'lucide-react';
+import { Compass, Users, Sparkles, ArrowRight, Layers, Search, Film, MapPin, Music, Gamepad2 } from 'lucide-react';
 
 interface LandingProps {
   onStart: () => void;
 }
+
+const HERO_IMG = 'https://images.pexels.com/photos/9124759/pexels-photo-9124759.jpeg?auto=compress&cs=tinysrgb&h=650&w=940';
+const CONCERT_IMG = 'https://images.pexels.com/photos/13230484/pexels-photo-13230484.jpeg?auto=compress&cs=tinysrgb&h=650&w=940';
+const GALLERY_IMG = 'https://images.pexels.com/photos/29608796/pexels-photo-29608796.jpeg?auto=compress&cs=tinysrgb&h=650&w=940';
 
 export function Landing({ onStart }: LandingProps) {
   return (
     <div className="animate-fade-in">
       {/* Hero */}
       <section className="relative overflow-hidden bg-ink-900 text-ink-50">
-        <div className="absolute inset-0 opacity-10">
-          <div className="absolute left-1/4 top-1/4 h-64 w-64 rounded-full bg-accent-400 blur-3xl" />
-          <div className="absolute right-1/4 bottom-1/4 h-72 w-72 rounded-full bg-ocean-400 blur-3xl" />
+        <div className="absolute inset-0">
+          <img
+            src={HERO_IMG}
+            alt="Friends enjoying a night out together"
+            className="h-full w-full object-cover opacity-30"
+            loading="eager"
+          />
+          <div className="absolute inset-0 bg-gradient-to-t from-ink-900 via-ink-900/80 to-ink-900/40" />
         </div>
-        <div className="relative mx-auto max-w-5xl px-6 py-24 md:py-32">
+        <div className="relative mx-auto max-w-5xl px-6 py-24 md:py-36">
           <div className="flex items-center gap-2 text-sm text-ink-300">
-            <Compass size={18} />
+            <Compass size={18} className="text-accent-400" />
             <span className="font-medium tracking-wide">CommonGround</span>
           </div>
           <h1 className="mt-6 max-w-3xl text-4xl font-medium leading-tight md:text-6xl">
-            Find what your group has in common — even when nobody agrees.
+            Different tastes.<br />One group plan.
           </h1>
           <p className="mt-6 max-w-2xl text-lg leading-relaxed text-ink-200">
-            CommonGround uses Qloo's cultural intelligence to discover shared
-            experiences across music, film, dining, books, and more. Stop
-            debating. Start discovering.
+            CommonGround uses Qloo's cultural intelligence to discover experiences
+            your whole group will enjoy — across music, film, dining, books, and more.
+            Stop debating. Start discovering.
           </p>
           <div className="mt-10 flex flex-col gap-4 sm:flex-row">
             <button onClick={onStart} className="btn-accent group">
               Create a group
               <ArrowRight size={18} className="transition-transform group-hover:translate-x-1" />
             </button>
-            <a href="#how-it-works" className="btn-secondary border-ink-600 bg-transparent text-ink-100 hover:bg-ink-800 hover:border-ink-500">
+            <a
+              href="#how-it-works"
+              className="inline-flex items-center justify-center gap-2 rounded-lg border border-ink-600 bg-transparent px-6 py-3 text-sm font-medium text-ink-100 transition-all hover:bg-ink-800 hover:border-ink-500"
+            >
               How it works
             </a>
           </div>
@@ -47,20 +59,19 @@ export function Landing({ onStart }: LandingProps) {
               You want to plan a night out, pick a movie, or find a restaurant.
               One person loves jazz, another prefers pop. Someone wants Italian,
               someone else wants Thai. Every group has this problem — and the
-              usual solutions (endless polling, defaulting to the loudest voice)
-              leave everyone mildly unsatisfied.
+              usual solutions leave everyone mildly unsatisfied.
             </p>
           </div>
-          <div className="rounded-xl bg-ink-100 p-8">
-            <div className="space-y-4">
+          <div className="rounded-2xl bg-ink-100 p-8">
+            <div className="space-y-3">
               {[
-                { name: 'Maya', want: 'Indie films', icon: '🎬' },
-                { name: 'James', want: 'Korean BBQ', icon: '🍖' },
-                { name: 'Priya', want: 'Jazz bars', icon: '🎷' },
-                { name: 'Tom', want: 'Board game cafés', icon: '🎲' },
+                { name: 'Maya', want: 'Indie films', icon: <Film size={16} /> },
+                { name: 'James', want: 'Korean BBQ', icon: <MapPin size={16} /> },
+                { name: 'Priya', want: 'Jazz bars', icon: <Music size={16} /> },
+                { name: 'Tom', want: 'Board game cafes', icon: <Gamepad2 size={16} /> },
               ].map((person) => (
-                <div key={person.name} className="flex items-center gap-3 rounded-lg bg-white p-3 shadow-sm">
-                  <div className="flex h-10 w-10 items-center justify-center rounded-full bg-ink-100 text-lg">
+                <div key={person.name} className="flex items-center gap-3 rounded-xl bg-white p-3 shadow-sm">
+                  <div className="flex h-10 w-10 items-center justify-center rounded-full bg-ink-100 text-ink-500">
                     {person.icon}
                   </div>
                   <div>
@@ -99,8 +110,8 @@ export function Landing({ onStart }: LandingProps) {
               },
               {
                 icon: <Compass className="text-accent-600" size={28} />,
-                title: '3. Discover shared experiences',
-                description: 'Get recommendations that genuinely work for everyone — with a decision trace showing why each suggestion fits.',
+                title: '3. Discover together',
+                description: 'Get ranked recommendations with consensus scores, member coverage, and a full decision trace showing why each suggestion fits.',
               },
             ].map((step) => (
               <div key={step.title} className="card">
@@ -109,6 +120,42 @@ export function Landing({ onStart }: LandingProps) {
                 <p className="mt-2 text-sm leading-relaxed text-ink-600">{step.description}</p>
               </div>
             ))}
+          </div>
+        </div>
+      </section>
+
+      {/* Feature showcase */}
+      <section className="mx-auto max-w-5xl px-6 py-20">
+        <div className="grid gap-8 md:grid-cols-2">
+          <div className="overflow-hidden rounded-2xl border border-ink-100 bg-white shadow-sm">
+            <img src={CONCERT_IMG} alt="Live concert with vibrant stage lighting" className="h-56 w-full object-cover" loading="lazy" />
+            <div className="p-6">
+              <div className="flex items-center gap-2 text-accent-600">
+                <Search size={18} />
+                <span className="text-sm font-medium">Real taste matching</span>
+              </div>
+              <h3 className="mt-2 text-lg font-medium text-ink-900">Powered by Qloo Insights</h3>
+              <p className="mt-2 text-sm leading-relaxed text-ink-600">
+                Every recommendation comes from Qloo's cultural intelligence API,
+                scoped to your destination. No fabricated results — just real
+                places surfaced by cross-domain taste affinities.
+              </p>
+            </div>
+          </div>
+          <div className="overflow-hidden rounded-2xl border border-ink-100 bg-white shadow-sm">
+            <img src={GALLERY_IMG} alt="Art gallery exhibition space" className="h-56 w-full object-cover" loading="lazy" />
+            <div className="p-6">
+              <div className="flex items-center gap-2 text-ocean-600">
+                <Layers size={18} />
+                <span className="text-sm font-medium">Transparent consensus</span>
+              </div>
+              <h3 className="mt-2 text-lg font-medium text-ink-900">See why it fits</h3>
+              <p className="mt-2 text-sm leading-relaxed text-ink-600">
+                Every candidate shows its consensus score, member coverage, and
+                a full decision trace. You always know which members surfaced
+                each recommendation and how it was ranked.
+              </p>
+            </div>
           </div>
         </div>
       </section>
