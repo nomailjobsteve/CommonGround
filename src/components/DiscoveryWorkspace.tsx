@@ -2,11 +2,12 @@ import { useState, useCallback, useRef } from 'react';
 import {
   Compass, Sparkles, ArrowLeft, CheckCircle2, AlertCircle,
   Loader2, RefreshCw, Info, ChevronDown, ChevronUp, MapPin, TrendingUp,
-  Layers, Search, AlertTriangle, Users2, User, Bridge, Zap,
+  Layers, Search, AlertTriangle, Users2, User, Zap,
 } from 'lucide-react';
 import type { Group } from '@/types/group';
 import type { AgentStep, DiscoveryOutcome, RankedCandidate, TasteBridgeCandidate, TasteBridgeResult } from '@/types/discovery';
-import { runDiscovery, retrieveTasteBridge } from '@/services/discovery-agent';
+import { runDiscovery, retrieveTasteBridge, type InsightsFn } from '@/services/discovery-agent';
+import { getInsights } from '@/lib/qloo-client';
 import { ErrorBanner, EmptyState, Badge, Spinner, ImageWithFallback, SkeletonCard } from '@/components/ui';
 
 interface DiscoveryWorkspaceProps {
@@ -35,7 +36,7 @@ export function DiscoveryWorkspace({ group, onBack }: DiscoveryWorkspaceProps) {
   const retryTasteBridge = useCallback(async () => {
     if (!group.destination || tasteBridgeRetrying) return;
     setTasteBridgeRetrying(true);
-    const result = await retrieveTasteBridge(group, group.destination.trim(), undefined);
+    const result = await retrieveTasteBridge(group, group.destination.trim(), getInsights as InsightsFn);
     setTasteBridgeOverride(result);
     setTasteBridgeRetrying(false);
   }, [group, tasteBridgeRetrying]);
@@ -277,7 +278,7 @@ export function DiscoveryWorkspace({ group, onBack }: DiscoveryWorkspaceProps) {
                     { mode: 'shared' as const, label: `Shared (${sharedCandidates.length})`, icon: <Users2 size={12} /> },
                     { mode: 'individual' as const, label: `Individual (${individualCandidates.length})`, icon: <User size={12} /> },
                     ...(tasteBridge && tasteBridge.status !== 'skipped'
-                      ? [{ mode: 'taste_bridge' as const, label: `Taste Bridge (${tasteBridgeCandidates.length})`, icon: <Bridge size={12} /> }]
+                      ? [{ mode: 'taste_bridge' as const, label: `Taste Bridge (${tasteBridgeCandidates.length})`, icon: <Zap size={12} /> }]
                       : []),
                   ] as const).map(({ mode, label, icon }) => (
                     <button
@@ -334,8 +335,20 @@ export function DiscoveryWorkspace({ group, onBack }: DiscoveryWorkspaceProps) {
             </div>
           )}
 
-          {/* Candidate grid */}
-          {filteredCandidates.length > 0 ? (
+          {/* Taste Bridge section */}
+          {filterMode === 'taste_bridge' && tasteBridge && (
+            <TasteBridgeSection
+              result={tasteBridge}
+              retrying={tasteBridgeRetrying}
+              onRetry={retryTasteBridge}
+              expandedId={expandedId}
+              onToggle={setExpandedId}
+            />
+          )}
+
+          {/* Candidate grid — hidden when viewing Taste Bridge */}
+          {filterMode !== 'taste_bridge' && (
+            filteredCandidates.length > 0 ? (
             <div className="grid gap-4 sm:grid-cols-2">
               {(filterMode === 'all' ? restCandidates : filteredCandidates).map((candidate) => (
                 <CandidateCard
@@ -370,7 +383,7 @@ export function DiscoveryWorkspace({ group, onBack }: DiscoveryWorkspaceProps) {
                 </button>
               }
             />
-          )}
+          ))}
 
           {/* Edit action */}
           <div className="card flex items-center justify-between">
@@ -855,6 +868,267 @@ function LiveTracePanel({ steps }: { steps: AgentStep[] }) {
           </div>
         ))}
       </div>
+    </div>
+  );
+}
+
+// ─── Taste Bridge section ───────────────────────────────────────────
+
+function TasteBridgeSection({
+  result,
+  retrying,
+  onRetry,
+  expandedId,
+  onToggle,
+}: {
+  result: TasteBridgeResult;
+  retrying: boolean;
+  onRetry: () => void;
+  expandedId: string | null;
+  onToggle: (id: string | null) => void;
+}) {
+  return (
+    <div className="space-y-6">
+      {/* Introduction */}
+      <div className="card border-ocean-200 bg-ocean-50">
+        <div className="flex items-start gap-3">
+          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-ocean-600 text-white">
+            <Zap size={20} />
+          </div>
+          <div className="flex-1">
+            <h3 className="text-lg font-medium text-ink-900">Taste Bridge</h3>
+            <p className="mt-1 text-sm text-ink-600">
+              These recommendations use the combined group profile — all members' resolved
+              interests queried together in a single Qloo request. This can surface
+              destination-specific places that individual member queries may not find.
+            </p>
+            <p className="mt-2 text-xs text-ink-500">
+              Unlike Shared results (which require the same venue to appear in multiple
+              member lists), Taste Bridge explores what Qloo recommends when it sees
+              everyone's tastes at once. These are group-profile discoveries, not
+              confirmed unanimous preferences.
+            </p>
+            <div className="mt-3 flex flex-wrap gap-2">
+              <Badge variant="ocean">
+                <MapPin size={10} className="inline mr-1" />
+                {result.destination}
+              </Badge>
+              <Badge variant="ocean">
+                {result.combinedEntityIds.length} combined interests
+              </Badge>
+              {result.status === 'success' && (
+                <Badge variant="accent">{result.candidates.length} results</Badge>
+              )}
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* Status messages */}
+      {result.status === 'failed' && (
+        <div className="rounded-lg border border-warning-200 bg-warning-50 p-4">
+          <div className="flex items-start gap-2">
+            <AlertTriangle size={16} className="mt-0.5 text-warning-600" />
+            <div className="flex-1 text-sm text-warning-800">
+              <p className="font-medium">Taste Bridge retrieval failed</p>
+              <p className="mt-1">{result.error || result.explanation}</p>
+              <p className="mt-1 text-xs text-warning-700">
+                Member-specific recommendations above are still available and unaffected.
+              </p>
+              <button
+                onClick={onRetry}
+                disabled={retrying}
+                className="mt-3 flex items-center gap-1 rounded-lg border border-warning-300 bg-white px-3 py-1.5 text-xs font-medium text-warning-700 hover:bg-warning-50 disabled:opacity-50"
+              >
+                {retrying ? <Loader2 size={14} className="animate-spin" /> : <RefreshCw size={14} />}
+                {retrying ? 'Retrying...' : 'Retry Taste Bridge'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {result.status === 'skipped' && (
+        <div className="rounded-lg border border-ink-100 bg-ink-50 p-4">
+          <div className="flex items-start gap-2">
+            <Info size={16} className="mt-0.5 text-ink-400" />
+            <div className="text-sm text-ink-500">
+              <p className="font-medium text-ink-600">Taste Bridge unavailable</p>
+              <p className="mt-1">{result.explanation}</p>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {result.status === 'success' && result.candidates.length === 0 && (
+        <EmptyState
+          icon={<AlertCircle size={32} />}
+          title="No Taste Bridge results"
+          description="Qloo returned no places for the combined group interests in this destination. Try adding more diverse interests or a different destination."
+        />
+      )}
+
+      {/* Taste Bridge cards */}
+      {result.status === 'success' && result.candidates.length > 0 && (
+        <>
+          {retrying && (
+            <div className="card flex items-center gap-3">
+              <Loader2 size={20} className="animate-spin text-ocean-600" />
+              <span className="text-sm text-ink-600">Retrying Taste Bridge...</span>
+            </div>
+          )}
+          <div className="grid gap-4 sm:grid-cols-2">
+            {result.candidates.map((candidate) => (
+              <TasteBridgeCard
+                key={candidate.entityId}
+                candidate={candidate}
+                expanded={expandedId === candidate.entityId}
+                onToggle={() =>
+                  onToggle(expandedId === candidate.entityId ? null : candidate.entityId)
+                }
+              />
+            ))}
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
+function TasteBridgeCard({
+  candidate,
+  expanded,
+  onToggle,
+}: {
+  candidate: TasteBridgeCandidate;
+  expanded: boolean;
+  onToggle: () => void;
+}) {
+  return (
+    <div className="card overflow-hidden border-ocean-100">
+      {/* Image header */}
+      <div className="relative h-44 overflow-hidden">
+        <ImageWithFallback
+          src={candidate.image}
+          alt={candidate.name}
+          category={candidate.category}
+          className="h-full w-full"
+          rounded="rounded-none"
+          iconSize={32}
+        />
+        <div className="absolute right-3 top-3">
+          <span className="flex items-center gap-1 rounded-full bg-ocean-600 px-2.5 py-0.5 text-xs font-medium text-white shadow-md">
+            <Zap size={10} /> Group mix
+          </span>
+        </div>
+      </div>
+
+      {/* Content */}
+      <div className="mt-4">
+        <div>
+          <h4 className="font-medium text-ink-900 truncate">{candidate.name}</h4>
+          <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-ink-400">
+            <span className="capitalize">
+              {candidate.category.replace('urn:entity:', '').replace(/_/g, ' ')}
+            </span>
+            {candidate.city && (
+              <span className="flex items-center gap-0.5">
+                <MapPin size={10} /> {candidate.city}
+                {candidate.metro && candidate.metro !== candidate.city && ` (${candidate.metro})`}
+              </span>
+            )}
+          </div>
+        </div>
+
+        {candidate.description && (
+          <p className="mt-2 text-sm text-ink-500 line-clamp-2">
+            {candidate.description}
+          </p>
+        )}
+
+        {/* Affinity */}
+        {candidate.affinity !== null && candidate.affinity !== undefined && (
+          <div className="mt-3 flex items-center gap-2">
+            <span className="rounded-full bg-ocean-100 px-2.5 py-0.5 text-xs text-ocean-700">
+              Qloo affinity: {candidate.affinity.toFixed(2)}
+            </span>
+          </div>
+        )}
+
+        {/* Contribution evidence */}
+        {candidate.hasExplainability && candidate.contributions.length > 0 && (
+          <div className="mt-3 space-y-1.5">
+            <p className="text-xs font-medium text-ink-500">Contributing interests:</p>
+            {candidate.contributions.map((contrib) => (
+              <div key={contrib.entityId} className="rounded-lg border border-ocean-100 bg-ocean-50 px-3 py-2">
+                <div className="flex items-center justify-between text-xs">
+                  <div className="min-w-0">
+                    {contrib.interestNames.length > 0 ? (
+                      <span className="text-ocean-700 font-medium">
+                        {contrib.interestNames.join(', ')}
+                      </span>
+                    ) : (
+                      <span className="text-ink-400 font-mono text-[10px]">
+                        {contrib.entityId.slice(0, 8)}...
+                      </span>
+                    )}
+                  </div>
+                  <span className="shrink-0 text-ocean-600 ml-2">
+                    score: {contrib.avgScore.toFixed(2)}
+                  </span>
+                </div>
+                {contrib.memberNames.length > 0 && (
+                  <div className="mt-1 flex flex-wrap gap-1">
+                    {contrib.memberNames.map((name) => (
+                      <span key={name} className="rounded-full bg-white px-2 py-0.5 text-[10px] text-ocean-600">
+                        {name}
+                      </span>
+                    ))}
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
+        )}
+
+        {/* No explainability note */}
+        {!candidate.hasExplainability && (
+          <div className="mt-3 rounded-lg border border-ink-100 bg-ink-50 px-3 py-2">
+            <p className="text-xs text-ink-400">
+              <Info size={10} className="inline mr-1" />
+              Recommended using the combined group interests; per-interest explanation was not returned.
+            </p>
+          </div>
+        )}
+
+        {/* Expand/collapse */}
+        <button
+          onClick={onToggle}
+          className="mt-3 flex items-center gap-1 text-xs font-medium text-ink-500 hover:text-ink-700 transition-colors"
+        >
+          {expanded ? (
+            <><ChevronUp size={14} /> Hide details</>
+          ) : (
+            <><ChevronDown size={14} /> Show details</>
+          )}
+        </button>
+      </div>
+
+      {/* Expanded details */}
+      {expanded && (
+        <div className="mt-4 border-t border-ink-100 pt-4 animate-slide-down">
+          <div className="rounded-lg border border-ink-100 p-3">
+            <p className="text-xs font-medium text-ink-500">Group-profile discovery</p>
+            <p className="mt-1 text-xs text-ink-400">
+              This recommendation was generated by querying Qloo with all group members'
+              resolved interests simultaneously. It is not classified as Shared or Individual
+              because it was not part of the per-member consensus ranking. Qloo's
+              explainability data, when available, shows which input interests contributed
+              to this recommendation. Omitted interests do not necessarily mean zero influence.
+            </p>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
