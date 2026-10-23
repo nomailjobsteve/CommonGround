@@ -15,8 +15,6 @@
  * All reasons are Fair Mix-derived, not Qloo explanations.
  */
 
-import type { RankedCandidate, TasteBridgeCandidate, MemberRetrievalResult } from '@/types/discovery';
-import type { Group } from '@/types/group';
 import type { FairMixItem, FairMixEligibleItem, FairMixInput, FairMixPlan, FairMixSource } from '@/types/fair-mix';
 
 const MAX_PLAN_SIZE = 5;
@@ -107,7 +105,6 @@ export function buildFairMixPlan(input: FairMixInput): FairMixPlan {
 
   // Deterministic selection
   const selected = selectRows(rows);
-  const selectedKeys = new Set(selected.map((r) => r.key));
 
   const eligible: FairMixEligibleItem[] = rows.map((r) => ({
     key: r.key,
@@ -130,7 +127,7 @@ export function buildFairMixPlan(input: FairMixInput): FairMixPlan {
     memberIds: row.memberIds,
     memberNames: row.memberNames,
     memberAssociationVerified: row.memberAssociationVerified,
-    selectionReason: buildSelectionReason(row, group),
+    selectionReason: buildSelectionReason(row),
     consensusScore: row.consensusScore,
     position: i + 1,
   }));
@@ -160,7 +157,6 @@ function selectRows(rows: CandidateRow[]): CandidateRow[] {
   if (rows.length === 0) return [];
 
   const selected: CandidateRow[] = [];
-  const selectedKeys = new Set<string>();
   const representedMembers = new Set<string>();
 
   // Phase 1: Select Shared candidates by consensus score
@@ -171,13 +167,12 @@ function selectRows(rows: CandidateRow[]): CandidateRow[] {
   for (const row of shared) {
     if (selected.length >= MAX_PLAN_SIZE) break;
     selected.push(row);
-    selectedKeys.add(row.key);
     row.memberIds.forEach((id) => representedMembers.add(id));
   }
 
   // Phase 2: Fill with candidates that bring in underrepresented members
   // Re-evaluate remaining rows for new member coverage
-  const remaining = rows.filter((r) => !selectedKeys.has(r.key));
+  const remaining = rows.filter((r) => !selected.some((s) => s.key === r.key));
   const withNewMembers = remaining
     .map((r) => {
       r.newMemberIds = r.memberIds.filter((id) => !representedMembers.has(id));
@@ -193,14 +188,13 @@ function selectRows(rows: CandidateRow[]): CandidateRow[] {
   for (const row of withNewMembers) {
     if (selected.length >= MAX_PLAN_SIZE) break;
     selected.push(row);
-    selectedKeys.add(row.key);
     row.memberIds.forEach((id) => representedMembers.add(id));
   }
 
   // Phase 3: Fill remaining slots by best score, prioritizing source diversity
   if (selected.length < MAX_PLAN_SIZE) {
     const leftover = rows
-      .filter((r) => !selectedKeys.has(r.key))
+      .filter((r) => !selected.some((s) => s.key === r.key))
       .sort((a, b) => {
         // Prefer source diversity: deprioritize sources already well-represented
         const sourceCount = (src: FairMixSource) => selected.filter((s) => s.source === src).length;
@@ -212,7 +206,6 @@ function selectRows(rows: CandidateRow[]): CandidateRow[] {
     for (const row of leftover) {
       if (selected.length >= MAX_PLAN_SIZE) break;
       selected.push(row);
-      selectedKeys.add(row.key);
     }
   }
 
@@ -227,7 +220,7 @@ function selectRows(rows: CandidateRow[]): CandidateRow[] {
   return selected;
 }
 
-function buildSelectionReason(row: CandidateRow, group: Group): string {
+function buildSelectionReason(row: CandidateRow): string {
   switch (row.source) {
     case 'shared': {
       const memberNames = row.memberNames;
@@ -308,93 +301,82 @@ export function removeFromFairMixPlan(plan: FairMixPlan, key: string): FairMixPl
  * list. Does not call Qloo.
  */
 export function restoreToFairMixPlan(plan: FairMixPlan, input: FairMixInput, key: string): FairMixPlan {
-  const eligible = input.rankedCandidates
-    .map((rc) => ({ rc, source: rc.isShared ? 'shared' : 'individual' as FairMixSource }))
-    .concat(
-      input.tasteBridgeCandidates.map((tb) => ({
-        rc: null as null,
-        tb,
-        source: 'taste_bridge' as FairMixSource,
-      })),
-    );
+  // Look in ranked candidates first
+  const rc = input.rankedCandidates.find((r) => r.entityId === key);
+  if (rc) {
+    const memberIds = [...new Set(rc.evidence.map((e) => e.memberId))];
+    const memberNames = [...new Set(rc.evidence.map((e) => e.memberName))];
+    const source: FairMixSource = rc.isShared ? 'shared' : 'individual';
+    const item: FairMixItem = {
+      key: rc.entityId,
+      entityId: rc.entityId,
+      name: rc.name,
+      description: rc.description,
+      image: rc.image,
+      category: rc.category,
+      city: rc.city,
+      metro: rc.metro,
+      source,
+      memberIds,
+      memberNames,
+      memberAssociationVerified: true,
+      selectionReason: buildSelectionReason(
+        {
+          key: rc.entityId,
+          entityId: rc.entityId,
+          name: rc.name,
+          description: rc.description,
+          image: rc.image,
+          category: rc.category,
+          city: rc.city,
+          metro: rc.metro,
+          source,
+          memberIds,
+          memberNames,
+          memberAssociationVerified: true,
+          consensusScore: rc.consensusScore,
+          newMemberIds: [],
+          priority: 0,
+          tieBreaker: rc.consensusScore,
+        },
+      ),
+      consensusScore: rc.consensusScore,
+      position: plan.items.length + 1,
+    };
+    const removedKeys = plan.removedKeys.filter((k) => k !== key);
+    return {
+      ...plan,
+      items: [...plan.items, item].map((it, i) => ({ ...it, position: i + 1 })),
+      removedKeys,
+    };
+  }
 
-  // Find the item in eligible data
-  for (const entry of eligible) {
-    const entityId = entry.rc?.entityId ?? entry.tb?.entityId;
-    if (entityId !== key) continue;
-
-    if (entry.rc) {
-      const memberIds = [...new Set(entry.rc.evidence.map((e) => e.memberId))];
-      const memberNames = [...new Set(entry.rc.evidence.map((e) => e.memberName))];
-      const item: FairMixItem = {
-        key: entry.rc.entityId,
-        entityId: entry.rc.entityId,
-        name: entry.rc.name,
-        description: entry.rc.description,
-        image: entry.rc.image,
-        category: entry.rc.category,
-        city: entry.rc.city,
-        metro: entry.rc.metro,
-        source: entry.source,
-        memberIds,
-        memberNames,
-        memberAssociationVerified: true,
-        selectionReason: buildSelectionReason(
-          {
-            key: entry.rc.entityId,
-            entityId: entry.rc.entityId,
-            name: entry.rc.name,
-            description: entry.rc.description,
-            image: entry.rc.image,
-            category: entry.rc.category,
-            city: entry.rc.city,
-            metro: entry.rc.metro,
-            source: entry.source,
-            memberIds,
-            memberNames,
-            memberAssociationVerified: true,
-            consensusScore: entry.rc.consensusScore,
-            newMemberIds: [],
-            priority: 0,
-            tieBreaker: entry.rc.consensusScore,
-          },
-          input.group,
-        ),
-        consensusScore: entry.rc.consensusScore,
-        position: plan.items.length + 1,
-      };
-      const removedKeys = plan.removedKeys.filter((k) => k !== key);
-      return {
-        ...plan,
-        items: [...plan.items, item].map((it, i) => ({ ...it, position: i + 1 })),
-        removedKeys,
-      };
-    } else if (entry.tb) {
-      const tb = entry.tb;
-      const item: FairMixItem = {
-        key: tb.entityId,
-        entityId: tb.entityId,
-        name: tb.name,
-        description: tb.description,
-        image: tb.image,
-        category: tb.category,
-        city: tb.city,
-        metro: tb.metro,
-        source: 'taste_bridge',
-        memberIds: [],
-        memberNames: [],
-        memberAssociationVerified: false,
-        selectionReason: 'Group-profile discovery from Taste Bridge. Restored by user.',
-        consensusScore: null,
-        position: plan.items.length + 1,
-      };
-      const removedKeys = plan.removedKeys.filter((k) => k !== key);
-      return {
-        ...plan,
-        items: [...plan.items, item].map((it, i) => ({ ...it, position: i + 1 })),
-        removedKeys,
-      };
-    }
+  // Look in Taste Bridge candidates
+  const tb = input.tasteBridgeCandidates.find((t) => t.entityId === key);
+  if (tb) {
+    const item: FairMixItem = {
+      key: tb.entityId,
+      entityId: tb.entityId,
+      name: tb.name,
+      description: tb.description,
+      image: tb.image,
+      category: tb.category,
+      city: tb.city,
+      metro: tb.metro,
+      source: 'taste_bridge',
+      memberIds: [],
+      memberNames: [],
+      memberAssociationVerified: false,
+      selectionReason: 'Group-profile discovery from Taste Bridge. Restored by user.',
+      consensusScore: null,
+      position: plan.items.length + 1,
+    };
+    const removedKeys = plan.removedKeys.filter((k) => k !== key);
+    return {
+      ...plan,
+      items: [...plan.items, item].map((it, i) => ({ ...it, position: i + 1 })),
+      removedKeys,
+    };
   }
 
   return plan;

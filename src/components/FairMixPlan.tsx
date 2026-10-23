@@ -1,16 +1,16 @@
-import { useState, useCallback, useRef } from 'react';
+import { useState, useCallback, useRef, useMemo } from 'react';
 import {
   Scale, X, RefreshCw, Copy, Check, MapPin, Users2, User, Zap,
   AlertTriangle, Info, ArrowLeftRight,
 } from 'lucide-react';
-import type { DiscoveryOutcome, RankedCandidate, TasteBridgeCandidate } from '@/types/discovery';
+import type { DiscoveryOutcome } from '@/types/discovery';
 import type { Group } from '@/types/group';
-import type { FairMixItem, FairMixPlan, FairMixSource } from '@/types/fair-mix';
+import type { FairMixItem, FairMixPlan } from '@/types/fair-mix';
 import {
   buildFairMixPlan, rebalanceFairMixPlan, removeFromFairMixPlan,
   restoreToFairMixPlan, generatePlanSummaryText, sourceLabelFor,
 } from '@/services/fair-mix-planner';
-import { ImageWithFallback, Badge, Spinner } from '@/components/ui';
+import { ImageWithFallback, Badge } from '@/components/ui';
 
 interface FairMixPlanSectionProps {
   outcome: DiscoveryOutcome;
@@ -18,14 +18,14 @@ interface FairMixPlanSectionProps {
 }
 
 export function FairMixPlanSection({ outcome, group }: FairMixPlanSectionProps) {
-  const input = {
+  const input = useMemo(() => ({
     rankedCandidates: outcome.rankedCandidates,
     tasteBridgeCandidates: outcome.tasteBridge?.candidates ?? [],
     tasteBridgeStatus: outcome.tasteBridge?.status ?? 'skipped',
     memberRetrievals: outcome.memberRetrievals,
     destination: group.destination ?? '',
     group,
-  };
+  }), [outcome, group]);
 
   const [plan, setPlan] = useState<FairMixPlan>(() => buildFairMixPlan(input));
   const [copied, setCopied] = useState(false);
