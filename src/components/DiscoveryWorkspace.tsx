@@ -2,13 +2,14 @@ import { useState, useCallback, useRef } from 'react';
 import {
   Compass, Sparkles, ArrowLeft, CheckCircle2, AlertCircle,
   Loader2, RefreshCw, Info, ChevronDown, ChevronUp, MapPin, TrendingUp,
-  Layers, Search, AlertTriangle, Users2, User, Zap,
+  Layers, Search, AlertTriangle, Users2, User, Zap, Scale,
 } from 'lucide-react';
 import type { Group } from '@/types/group';
 import type { AgentStep, DiscoveryOutcome, RankedCandidate, TasteBridgeCandidate, TasteBridgeResult } from '@/types/discovery';
 import { runDiscovery, retrieveTasteBridge, type InsightsFn } from '@/services/discovery-agent';
 import { getInsights } from '@/lib/qloo-client';
 import { ErrorBanner, EmptyState, Badge, Spinner, ImageWithFallback, SkeletonCard } from '@/components/ui';
+import { FairMixPlanSection } from '@/components/FairMixPlan';
 
 interface DiscoveryWorkspaceProps {
   group: Group;
@@ -21,7 +22,7 @@ type WorkspaceState =
   | { status: 'done'; outcome: DiscoveryOutcome }
   | { status: 'error'; message: string; kind: string };
 
-type FilterMode = 'all' | 'shared' | 'individual' | 'taste_bridge';
+type FilterMode = 'all' | 'shared' | 'individual' | 'taste_bridge' | 'fair_mix';
 type SortMode = 'consensus' | 'coverage' | 'name';
 
 export function DiscoveryWorkspace({ group, onBack }: DiscoveryWorkspaceProps) {
@@ -280,6 +281,7 @@ export function DiscoveryWorkspace({ group, onBack }: DiscoveryWorkspaceProps) {
                     ...(tasteBridge && tasteBridge.status !== 'skipped'
                       ? [{ mode: 'taste_bridge' as const, label: `Taste Bridge (${tasteBridgeCandidates.length})`, icon: <Zap size={12} /> }]
                       : []),
+                    { mode: 'fair_mix' as const, label: 'Fair Mix Plan', icon: <Scale size={12} /> },
                   ] as const).map(({ mode, label, icon }) => (
                     <button
                       key={mode}
@@ -295,7 +297,7 @@ export function DiscoveryWorkspace({ group, onBack }: DiscoveryWorkspaceProps) {
                   ))}
                 </div>
               </div>
-              {filterMode !== 'taste_bridge' && (
+              {filterMode !== 'taste_bridge' && filterMode !== 'fair_mix' && (
                 <div className="flex items-center gap-2">
                   <span className="text-sm text-ink-500">Sort by:</span>
                   <div className="flex gap-2">
@@ -346,8 +348,13 @@ export function DiscoveryWorkspace({ group, onBack }: DiscoveryWorkspaceProps) {
             />
           )}
 
-          {/* Candidate grid — hidden when viewing Taste Bridge */}
-          {filterMode !== 'taste_bridge' && (
+          {/* Fair Mix Plan section */}
+          {filterMode === 'fair_mix' && (
+            <FairMixPlanSection outcome={state.outcome} group={group} />
+          )}
+
+          {/* Candidate grid — hidden when viewing Taste Bridge or Fair Mix */}
+          {filterMode !== 'taste_bridge' && filterMode !== 'fair_mix' && (
             filteredCandidates.length > 0 ? (
             <div className="grid gap-4 sm:grid-cols-2">
               {(filterMode === 'all' ? restCandidates : filteredCandidates).map((candidate) => (
