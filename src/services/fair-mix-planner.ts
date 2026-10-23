@@ -46,7 +46,7 @@ interface CandidateRow {
  * Does not make any Qloo requests.
  */
 export function buildFairMixPlan(input: FairMixInput): FairMixPlan {
-  const { rankedCandidates, tasteBridgeCandidates, tasteBridgeStatus, memberRetrievals, destination, group } = input;
+  const { rankedCandidates, tasteBridgeCandidates, tasteBridgeStatus, memberRetrievals, destination } = input;
 
   const failedMemberNames = memberRetrievals
     .filter((r) => r.status === 'failed')
