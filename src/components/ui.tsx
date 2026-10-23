@@ -1,5 +1,5 @@
 import { type ReactNode, useState } from 'react';
-import { Loader2, ImageIcon, Check, AlertTriangle, Compass, Music, Film, BookOpen, MapPin, Gamepad2, Tv, Mic } from 'lucide-react';
+import { Loader2, ImageIcon, Check, AlertTriangle, Music, Film, BookOpen, MapPin, Gamepad2, Tv, Mic, type LucideIcon } from 'lucide-react';
 
 export function Spinner({ size = 20 }: { size?: number }) {
   return <Loader2 size={size} className="animate-spin text-ink-400" />;
@@ -110,19 +110,19 @@ export function StepIndicator({ steps, current }: { steps: string[]; current: nu
   );
 }
 
-const CATEGORY_ICONS: Record<string, ReactNode> = {
-  'urn:entity:place': <MapPin size={20} />,
-  'urn:entity:music': <Music size={20} />,
-  'urn:entity:artist': <Mic size={20} />,
-  'urn:entity:movie': <Film size={20} />,
-  'urn:entity:tv_show': <Tv size={20} />,
-  'urn:entity:book': <BookOpen size={20} />,
-  'urn:entity:game': <Gamepad2 size={20} />,
+const CATEGORY_ICONS: Record<string, LucideIcon> = {
+  'urn:entity:place': MapPin,
+  'urn:entity:music': Music,
+  'urn:entity:artist': Mic,
+  'urn:entity:movie': Film,
+  'urn:entity:tv_show': Tv,
+  'urn:entity:book': BookOpen,
+  'urn:entity:game': Gamepad2,
 };
 
-function getCategoryIcon(category?: string | null): ReactNode {
-  if (!category) return <Compass size={20} />;
-  return CATEGORY_ICONS[category] || <ImageIcon size={20} />;
+function getCategoryIcon(category?: string | null, size = 24): ReactNode {
+  const Icon = (category && CATEGORY_ICONS[category]) || ImageIcon;
+  return <Icon size={size} />;
 }
 
 function isValidImageUrl(url: string): boolean {
@@ -173,7 +173,7 @@ export function ImageWithFallback({
       aria-label={alt}
     >
       <div className="text-ink-400" style={{ display: 'flex' }}>
-        {getCategoryIcon(category)}
+        {getCategoryIcon(category, iconSize)}
       </div>
     </div>
   );

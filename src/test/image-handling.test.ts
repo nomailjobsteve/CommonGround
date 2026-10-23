@@ -107,7 +107,7 @@ describe('extractEntityImage — Qloo image field priority', () => {
   });
 
   it('returns null when properties.images[0] has no url', () => {
-    const entity = { properties: { images: [{ type: 'urn:image:place:unknown' }] } };
+    const entity = { properties: { images: [{ url: '', type: 'urn:image:place:unknown' }] } };
     expect(extractEntityImage(entity)).toBeNull();
   });
 
