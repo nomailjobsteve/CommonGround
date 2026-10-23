@@ -798,8 +798,8 @@ describe('adaptive one-pass limit', () => {
     expect(['completed', 'partial']).toContain(outcome.run.status);
     // Adaptive should have been triggered
     expect(outcome.adaptiveTriggered).toBe(true);
-    // Total calls should be at most: 2 (first pass) + 1 (adaptive pass for m1 only) = 3
-    expect(callCount).toBeLessThanOrEqual(3);
+    // Total calls: 2 (first pass) + 1 (adaptive pass) + 1 (taste bridge) = 4
+    expect(callCount).toBeLessThanOrEqual(4);
   });
 });
 

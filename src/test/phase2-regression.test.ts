@@ -346,7 +346,7 @@ describe('member-specific entity IDs in insights requests', () => {
 
     await runDiscovery(group, { insightsFn: mockInsightsFn as never });
 
-    expect(mockInsightsFn).toHaveBeenCalledTimes(2);
+    expect(mockInsightsFn).toHaveBeenCalledTimes(3);
     const firstCallEntities = capturedParams[0].signalInterestsEntities as string[];
     const secondCallEntities = capturedParams[1].signalInterestsEntities as string[];
     expect(firstCallEntities).toContain('ENT-MILES');

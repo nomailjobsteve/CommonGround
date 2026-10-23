@@ -274,12 +274,13 @@ describe('Taste Bridge: separation from consensus', () => {
       makeMember('m2', 'Bob', [makeInterest('i2', 'Rock', 'qloo-rock-1')]),
     ]);
 
-    const memberEntities = [makeQlooEntity('place-a', 'Place A', 0.9)];
+    const memberEntitiesA = [makeQlooEntity('place-a', 'Place A', 0.9)];
+    const memberEntitiesB = [makeQlooEntity('place-z', 'Place Z', 0.8)];
     const tbEntities = [makeQlooEntity('place-b', 'Place B', 0.8)];
 
     const responses: QlooResult<{ results: QlooEntity[]; meta: { endpoint: string; retrievedAt: string } }>[] = [
-      { success: true, data: { results: memberEntities, meta: { endpoint: '/v2/insights', retrievedAt: '' } } },
-      { success: true, data: { results: memberEntities, meta: { endpoint: '/v2/insights', retrievedAt: '' } } },
+      { success: true, data: { results: memberEntitiesA, meta: { endpoint: '/v2/insights', retrievedAt: '' } } },
+      { success: true, data: { results: memberEntitiesB, meta: { endpoint: '/v2/insights', retrievedAt: '' } } },
       { success: true, data: { results: tbEntities, meta: { endpoint: '/v2/insights', retrievedAt: '' } } },
     ];
     const fn = mockSequentialInsightsFn(responses);
@@ -301,12 +302,13 @@ describe('Taste Bridge: no inflation of Shared counts', () => {
       makeMember('m2', 'Bob', [makeInterest('i2', 'Rock', 'qloo-rock-1')]),
     ]);
 
-    const memberEntities = [makeQlooEntity('place-a', 'Place A')];
+    const memberEntitiesA = [makeQlooEntity('place-a', 'Place A')];
+    const memberEntitiesB = [makeQlooEntity('place-d', 'Place D')];
     const tbEntities = [makeQlooEntity('place-b', 'Place B'), makeQlooEntity('place-c', 'Place C')];
 
     const fn = mockSequentialInsightsFn([
-      { success: true, data: { results: memberEntities, meta: { endpoint: '/v2/insights', retrievedAt: '' } } },
-      { success: true, data: { results: memberEntities, meta: { endpoint: '/v2/insights', retrievedAt: '' } } },
+      { success: true, data: { results: memberEntitiesA, meta: { endpoint: '/v2/insights', retrievedAt: '' } } },
+      { success: true, data: { results: memberEntitiesB, meta: { endpoint: '/v2/insights', retrievedAt: '' } } },
       { success: true, data: { results: tbEntities, meta: { endpoint: '/v2/insights', retrievedAt: '' } } },
     ]);
 
@@ -332,11 +334,13 @@ describe('Taste Bridge: explainability', () => {
 
     const tbEntities = [makeQlooEntity('place-x', 'Bridge Venue', 0.85)];
     const queryExplainability = {
-      'signal.interests.entities': {
-        effect_on_all_recs: [
-          { entity_id: 'qloo-jazz-1', avg_score: 0.9 },
-          { entity_id: 'qloo-rock-1', avg_score: 0.7 },
-        ],
+      explainability: {
+        'signal.interests.entities': {
+          effect_on_all_recs: [
+            { entity_id: 'qloo-jazz-1', avg_score: 0.9 },
+            { entity_id: 'qloo-rock-1', avg_score: 0.7 },
+          ],
+        },
       },
     };
 
@@ -403,10 +407,11 @@ describe('Taste Bridge: failure isolation', () => {
       makeMember('m2', 'Bob', [makeInterest('i2', 'Rock', 'qloo-rock-1')]),
     ]);
 
-    const memberEntities = [makeQlooEntity('place-a', 'Place A')];
+    const memberEntitiesA = [makeQlooEntity('place-a', 'Place A')];
+    const memberEntitiesB = [makeQlooEntity('place-d', 'Place D')];
     const fn = mockSequentialInsightsFn([
-      { success: true, data: { results: memberEntities, meta: { endpoint: '/v2/insights', retrievedAt: '' } } },
-      { success: true, data: { results: memberEntities, meta: { endpoint: '/v2/insights', retrievedAt: '' } } },
+      { success: true, data: { results: memberEntitiesA, meta: { endpoint: '/v2/insights', retrievedAt: '' } } },
+      { success: true, data: { results: memberEntitiesB, meta: { endpoint: '/v2/insights', retrievedAt: '' } } },
       { success: false, error: { kind: 'server_error', message: 'Qloo error', statusCode: 500 } },
     ]);
 
@@ -423,10 +428,11 @@ describe('Taste Bridge: failure isolation', () => {
       makeMember('m2', 'Bob', [makeInterest('i2', 'Rock', 'qloo-rock-1')]),
     ]);
 
-    const memberEntities = [makeQlooEntity('place-a', 'Place A')];
+    const memberEntitiesA = [makeQlooEntity('place-a', 'Place A')];
+    const memberEntitiesB = [makeQlooEntity('place-d', 'Place D')];
     const fn = mockSequentialInsightsFn([
-      { success: true, data: { results: memberEntities, meta: { endpoint: '/v2/insights', retrievedAt: '' } } },
-      { success: true, data: { results: memberEntities, meta: { endpoint: '/v2/insights', retrievedAt: '' } } },
+      { success: true, data: { results: memberEntitiesA, meta: { endpoint: '/v2/insights', retrievedAt: '' } } },
+      { success: true, data: { results: memberEntitiesB, meta: { endpoint: '/v2/insights', retrievedAt: '' } } },
       { success: true, data: { results: [], meta: { endpoint: '/v2/insights', retrievedAt: '' } } },
     ]);
 
