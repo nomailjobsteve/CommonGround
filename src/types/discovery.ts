@@ -12,6 +12,7 @@ export type StepType =
   | 'candidate_normalization'
   | 'consensus_ranking'
   | 'adaptive_exploration'
+  | 'taste_bridge'
   | 'completion'
   // Legacy step types retained for compatibility
   | 'entity_search'
@@ -116,6 +117,42 @@ export interface DiscoveryOutcome {
   adaptiveImprovedCoverage: boolean | null;
   consensusExplanation: string;
   warnings: string[];
+  tasteBridge: TasteBridgeResult | null;
+}
+
+/** Status of the Taste Bridge group-level retrieval. */
+export type TasteBridgeStatus = 'success' | 'skipped' | 'failed';
+
+/** A contributing input entity mapped back to its member(s). */
+export interface TasteBridgeContribution {
+  entityId: string;
+  avgScore: number;
+  interestNames: string[];
+  memberNames: string[];
+}
+
+/** A single candidate from the group-level Taste Bridge retrieval. */
+export interface TasteBridgeCandidate {
+  entityId: string;
+  name: string;
+  description: string | null;
+  image: string | null;
+  category: string;
+  city: string | null;
+  metro: string | null;
+  affinity: number | null;
+  contributions: TasteBridgeContribution[];
+  hasExplainability: boolean;
+}
+
+/** The result of the Taste Bridge group-level retrieval. */
+export interface TasteBridgeResult {
+  status: TasteBridgeStatus;
+  candidates: TasteBridgeCandidate[];
+  destination: string;
+  combinedEntityIds: string[];
+  explanation: string;
+  error: string | null;
 }
 
 export interface DiscoveryResult {

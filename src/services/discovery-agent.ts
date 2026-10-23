@@ -23,6 +23,9 @@ import type {
   MemberRetrievalResult,
   CandidateEvidence,
   RankedCandidate,
+  TasteBridgeCandidate,
+  TasteBridgeResult,
+  TasteBridgeContribution,
 } from '@/types/discovery';
 import { getInsights } from '@/lib/qloo-client';
 
@@ -35,6 +38,11 @@ const COVERAGE_WEIGHT = 0.7;
 const RANK_SUPPORT_WEIGHT = 0.3;
 const ADAPTIVE_MIN_CANDIDATES = 3;
 const ADAPTIVE_MIN_COVERAGE = 0.5;
+
+// Taste Bridge configuration
+const TB_MAX_ENTITIES_PER_MEMBER = 3;
+const TB_MAX_COMBINED_IDS = 12;
+const TB_MIN_MEMBERS_WITH_RESOLVED = 2;
 
 /** Function type for Qloo Insights retrieval (injectable for testing). */
 export type InsightsFn = (params: {
@@ -467,6 +475,214 @@ export function shouldTriggerAdaptive(
   };
 }
 
+// ─── Stage F: Taste Bridge group-level retrieval ────────────────────
+
+/** Maps entity IDs to the members who share that interest. */
+interface EntityMemberMap {
+  entityId: string;
+  interestNames: string[];
+  memberNames: string[];
+}
+
+/**
+ * Build a balanced, deduplicated set of resolved entity IDs for the group-level
+ * Taste Bridge request. Selects up to TB_MAX_ENTITIES_PER_MEMBER distinct
+ * resolved interests per member, with a total cap of TB_MAX_COMBINED_IDS.
+ * Preserves member associations for explainability mapping.
+ */
+export function buildGroupInterestSet(group: Group): {
+  entityIds: string[];
+  entityMap: Map<string, EntityMemberMap>;
+  membersWithResolved: number;
+} {
+  const entityMap = new Map<string, EntityMemberMap>();
+
+  for (const member of group.members) {
+    const resolved = member.culturalInterests.filter(
+      (ci) => ci.resolutionStatus === 'resolved' && ci.resolvedEntityId,
+    );
+    const selected = resolved.slice(0, TB_MAX_ENTITIES_PER_MEMBER);
+
+    for (const interest of selected) {
+      const eid = interest.resolvedEntityId!;
+      const existing = entityMap.get(eid);
+      if (existing) {
+        if (!existing.memberNames.includes(member.displayName)) {
+          existing.memberNames.push(member.displayName);
+        }
+        if (interest.displayName && !existing.interestNames.includes(interest.displayName)) {
+          existing.interestNames.push(interest.displayName);
+        }
+      } else {
+        entityMap.set(eid, {
+          entityId: eid,
+          interestNames: interest.displayName ? [interest.displayName] : [],
+          memberNames: [member.displayName],
+        });
+      }
+    }
+  }
+
+  const entityIds = [...entityMap.keys()].slice(0, TB_MAX_COMBINED_IDS);
+  const membersWithResolved = group.members.filter(
+    (m) => m.culturalInterests.some((ci) => ci.resolutionStatus === 'resolved' && ci.resolvedEntityId),
+  ).length;
+
+  return { entityIds, entityMap, membersWithResolved };
+}
+
+/**
+ * Parse Qloo's query-level explainability to map contributing input entities
+ * back to their member associations. Only includes entities present in the
+ * returned explainability data — omitted entities are not treated as proof
+ * of zero influence.
+ */
+function parseExplainability(
+  queryExplainability: unknown,
+  entityMap: Map<string, EntityMemberMap>,
+): { contributions: TasteBridgeContribution[]; hasExplainability: boolean } {
+  if (!queryExplainability || typeof queryExplainability !== 'object') {
+    return { contributions: [], hasExplainability: false };
+  }
+
+  const explObj = queryExplainability as Record<string, unknown>;
+  const signalKey = 'signal.interests.entities';
+  if (!(signalKey in explObj)) {
+    return { contributions: [], hasExplainability: false };
+  }
+
+  const signalData = explObj[signalKey] as Record<string, unknown>;
+  // Use effect_on_all_recs for the broadest view of contributions
+  const effectKey = 'effect_on_all_recs';
+  if (!(effectKey in signalData) || !Array.isArray(signalData[effectKey])) {
+    return { contributions: [], hasExplainability: false };
+  }
+
+  const effects = signalData[effectKey] as Array<{ entity_id?: string; avg_score?: number }>;
+  const contributions: TasteBridgeContribution[] = [];
+
+  for (const effect of effects) {
+    if (!effect.entity_id) continue;
+    const memberInfo = entityMap.get(effect.entity_id);
+    contributions.push({
+      entityId: effect.entity_id,
+      avgScore: typeof effect.avg_score === 'number' ? effect.avg_score : 0,
+      interestNames: memberInfo?.interestNames || [],
+      memberNames: memberInfo?.memberNames || [],
+    });
+  }
+
+  return { contributions, hasExplainability: contributions.length > 0 };
+}
+
+/**
+ * Execute the group-level Taste Bridge retrieval. At most ONE Qloo Insights
+ * request is made using the combined group interests.
+ */
+export async function retrieveTasteBridge(
+  group: Group,
+  destination: string,
+  insightsFn: InsightsFn,
+  take: number = DEFAULT_TAKE,
+): Promise<TasteBridgeResult> {
+  const { entityIds, entityMap, membersWithResolved } = buildGroupInterestSet(group);
+
+  if (membersWithResolved < TB_MIN_MEMBERS_WITH_RESOLVED) {
+    return {
+      status: 'skipped',
+      candidates: [],
+      destination,
+      combinedEntityIds: [],
+      explanation: `Taste Bridge requires at least ${TB_MIN_MEMBERS_WITH_RESOLVED} members with resolved interests. Only ${membersWithResolved} member(s) have resolved interests.`,
+      error: null,
+    };
+  }
+
+  if (entityIds.length === 0) {
+    return {
+      status: 'skipped',
+      candidates: [],
+      destination,
+      combinedEntityIds: [],
+      explanation: 'No resolved entity IDs available for the group-level request.',
+      error: null,
+    };
+  }
+
+  const result = await insightsFn({
+    filterType: TARGET_CATEGORY,
+    signalInterestsEntities: entityIds,
+    filterLocationQuery: destination,
+    take,
+    sortBy: 'affinity',
+    featureExplainability: true,
+  });
+
+  if (!result.success) {
+    return {
+      status: 'failed',
+      candidates: [],
+      destination,
+      combinedEntityIds: entityIds,
+      explanation: 'The group-level Taste Bridge request failed.',
+      error: result.error.message,
+    };
+  }
+
+  const entities = result.data.results;
+  const queryExplainability = (result.data as { query?: unknown }).query
+    ? ((result.data as { query?: unknown }).query as Record<string, unknown>).explainability
+    : undefined;
+
+  const { contributions, hasExplainability } = parseExplainability(queryExplainability, entityMap);
+
+  // Deduplicate by entity ID
+  const seen = new Set<string>();
+  const candidates: TasteBridgeCandidate[] = [];
+
+  for (const entity of entities) {
+    const entityId = entity.entity_id || entity.id;
+    if (!entityId || seen.has(entityId)) continue;
+    seen.add(entityId);
+
+    const geocode = entity.properties?.geocode;
+
+    candidates.push({
+      entityId,
+      name: entity.name || entity.properties?.name || 'Unknown',
+      description:
+        entity.properties?.short_description ||
+        entity.description ||
+        entity.properties?.description ||
+        null,
+      image:
+        entity.properties?.images?.[0]?.url ||
+        entity.properties?.image?.url ||
+        entity.image ||
+        null,
+      category: entity.subtype || entity.type || TARGET_CATEGORY,
+      city: geocode?.city ?? geocode?.name ?? null,
+      metro: geocode?.metro ?? null,
+      affinity: entity.affinity ?? null,
+      contributions,
+      hasExplainability,
+    });
+  }
+
+  const explanation = hasExplainability
+    ? `Group-level retrieval using ${entityIds.length} combined interests from ${membersWithResolved} members. Qloo returned ${candidates.length} candidate(s) with explainability data showing contributing input entities.`
+    : `Group-level retrieval using ${entityIds.length} combined interests from ${membersWithResolved} members. Qloo returned ${candidates.length} candidate(s). Per-interest explanation was not returned.`;
+
+  return {
+    status: 'success',
+    candidates,
+    destination,
+    combinedEntityIds: entityIds,
+    explanation,
+    error: null,
+  };
+}
+
 // ─── Entity extraction from QlooEntity ──────────────────────────────
 
 export function extractEntityId(entity: QlooEntity): string | null {
@@ -527,6 +743,7 @@ export async function runDiscovery(
       adaptiveImprovedCoverage: null,
       consensusExplanation: 'Discovery could not proceed — insufficient resolved interests.',
       warnings,
+      tasteBridge: null,
     };
   }
 
@@ -547,6 +764,7 @@ export async function runDiscovery(
       adaptiveImprovedCoverage: null,
       consensusExplanation: 'Discovery could not proceed — no destination selected.',
       warnings,
+      tasteBridge: null,
     };
   }
 
@@ -618,6 +836,7 @@ export async function runDiscovery(
         ? `Destination "${destination}" could not be resolved by Qloo. No results were retrieved.`
         : 'No results — all member retrievals failed.',
       warnings,
+      tasteBridge: null,
     };
   }
 
@@ -729,7 +948,46 @@ export async function runDiscovery(
     );
   }
 
-  // ── Stage F: Finalize ──
+  // ── Stage F: Taste Bridge group-level retrieval ──
+  updateTrace(
+    makeStep('taste_bridge', 'running', 'Querying Qloo with combined group interests...'),
+  );
+
+  let tasteBridge: TasteBridgeResult;
+  try {
+    tasteBridge = await retrieveTasteBridge(group, destination, insightsFn, take);
+  } catch (err) {
+    tasteBridge = {
+      status: 'failed',
+      candidates: [],
+      destination,
+      combinedEntityIds: [],
+      explanation: 'Taste Bridge encountered an unexpected error.',
+      error: err instanceof Error ? err.message : 'Unknown error',
+    };
+  }
+
+  if (tasteBridge.status === 'success') {
+    updateTrace(
+      makeStep(
+        'taste_bridge',
+        'completed',
+        `Taste Bridge complete. ${tasteBridge.candidates.length} group-level candidate(s) from ${tasteBridge.combinedEntityIds.length} combined interests.`,
+        tasteBridge.combinedEntityIds.slice(0, 6),
+      ),
+    );
+  } else if (tasteBridge.status === 'skipped') {
+    updateTrace(
+      makeStep('taste_bridge', 'skipped', tasteBridge.explanation),
+    );
+  } else {
+    updateTrace(
+      makeStep('taste_bridge', 'failed', tasteBridge.explanation + ' ' + (tasteBridge.error || '')),
+    );
+    warnings.push(`Taste Bridge group-level retrieval failed: ${tasteBridge.error || 'Unknown error'}. Member-specific results are still available.`);
+  }
+
+  // ── Stage G: Finalize ──
   run.status = ranked.length > 0 ? 'completed' : 'partial';
   run.candidateRefs = ranked.map((c) => c.entityId);
   run.completedAt = new Date().toISOString();
@@ -766,6 +1024,7 @@ export async function runDiscovery(
     adaptiveImprovedCoverage,
     consensusExplanation,
     warnings,
+    tasteBridge,
   };
 }
 

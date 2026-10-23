@@ -2,11 +2,11 @@ import { useState, useCallback, useRef } from 'react';
 import {
   Compass, Sparkles, ArrowLeft, CheckCircle2, AlertCircle,
   Loader2, RefreshCw, Info, ChevronDown, ChevronUp, MapPin, TrendingUp,
-  Layers, Search, AlertTriangle, Users2, User,
+  Layers, Search, AlertTriangle, Users2, User, Bridge, Zap,
 } from 'lucide-react';
 import type { Group } from '@/types/group';
-import type { AgentStep, DiscoveryOutcome, RankedCandidate } from '@/types/discovery';
-import { runDiscovery } from '@/services/discovery-agent';
+import type { AgentStep, DiscoveryOutcome, RankedCandidate, TasteBridgeCandidate, TasteBridgeResult } from '@/types/discovery';
+import { runDiscovery, retrieveTasteBridge } from '@/services/discovery-agent';
 import { ErrorBanner, EmptyState, Badge, Spinner, ImageWithFallback, SkeletonCard } from '@/components/ui';
 
 interface DiscoveryWorkspaceProps {
@@ -20,7 +20,7 @@ type WorkspaceState =
   | { status: 'done'; outcome: DiscoveryOutcome }
   | { status: 'error'; message: string; kind: string };
 
-type FilterMode = 'all' | 'shared' | 'individual';
+type FilterMode = 'all' | 'shared' | 'individual' | 'taste_bridge';
 type SortMode = 'consensus' | 'coverage' | 'name';
 
 export function DiscoveryWorkspace({ group, onBack }: DiscoveryWorkspaceProps) {
@@ -28,12 +28,23 @@ export function DiscoveryWorkspace({ group, onBack }: DiscoveryWorkspaceProps) {
   const [sortMode, setSortMode] = useState<SortMode>('consensus');
   const [filterMode, setFilterMode] = useState<FilterMode>('all');
   const [expandedId, setExpandedId] = useState<string | null>(null);
+  const [tasteBridgeOverride, setTasteBridgeOverride] = useState<TasteBridgeResult | null>(null);
+  const [tasteBridgeRetrying, setTasteBridgeRetrying] = useState(false);
   const runningRef = useRef(false);
+
+  const retryTasteBridge = useCallback(async () => {
+    if (!group.destination || tasteBridgeRetrying) return;
+    setTasteBridgeRetrying(true);
+    const result = await retrieveTasteBridge(group, group.destination.trim(), undefined);
+    setTasteBridgeOverride(result);
+    setTasteBridgeRetrying(false);
+  }, [group, tasteBridgeRetrying]);
 
   const startDiscovery = useCallback(async () => {
     if (runningRef.current) return;
     runningRef.current = true;
     setState({ status: 'running', trace: [] });
+    setTasteBridgeOverride(null);
 
     const outcome = await runDiscovery(
       group,
@@ -65,6 +76,8 @@ export function DiscoveryWorkspace({ group, onBack }: DiscoveryWorkspaceProps) {
   const allCandidates = state.status === 'done' ? state.outcome.rankedCandidates : [];
   const sharedCandidates = allCandidates.filter((c) => c.isShared);
   const individualCandidates = allCandidates.filter((c) => !c.isShared);
+  const tasteBridge = tasteBridgeOverride ?? (state.status === 'done' ? state.outcome.tasteBridge : null);
+  const tasteBridgeCandidates = tasteBridge?.candidates ?? [];
 
   const filteredCandidates = (() => {
     let list = allCandidates;
@@ -254,15 +267,18 @@ export function DiscoveryWorkspace({ group, onBack }: DiscoveryWorkspaceProps) {
           )}
 
           {/* Filter + Sort controls */}
-          {allCandidates.length > 0 && (
+          {(allCandidates.length > 0 || (tasteBridge && tasteBridge.status !== 'skipped')) && (
             <div className="flex flex-wrap items-center justify-between gap-4">
               <div className="flex items-center gap-2">
                 <span className="text-sm text-ink-500">Show:</span>
-                <div className="flex gap-2">
+                <div className="flex flex-wrap gap-2">
                   {([
                     { mode: 'all' as const, label: 'All', icon: <Layers size={12} /> },
                     { mode: 'shared' as const, label: `Shared (${sharedCandidates.length})`, icon: <Users2 size={12} /> },
                     { mode: 'individual' as const, label: `Individual (${individualCandidates.length})`, icon: <User size={12} /> },
+                    ...(tasteBridge && tasteBridge.status !== 'skipped'
+                      ? [{ mode: 'taste_bridge' as const, label: `Taste Bridge (${tasteBridgeCandidates.length})`, icon: <Bridge size={12} /> }]
+                      : []),
                   ] as const).map(({ mode, label, icon }) => (
                     <button
                       key={mode}
@@ -278,24 +294,26 @@ export function DiscoveryWorkspace({ group, onBack }: DiscoveryWorkspaceProps) {
                   ))}
                 </div>
               </div>
-              <div className="flex items-center gap-2">
-                <span className="text-sm text-ink-500">Sort by:</span>
-                <div className="flex gap-2">
-                  {(['consensus', 'coverage', 'name'] as SortMode[]).map((mode) => (
-                    <button
-                      key={mode}
-                      onClick={() => setSortMode(mode)}
-                      className={`rounded-full px-3 py-1 text-xs font-medium transition-colors ${
-                        sortMode === mode
-                          ? 'bg-ink-900 text-ink-50'
-                          : 'bg-ink-100 text-ink-500 hover:bg-ink-200'
-                      }`}
-                    >
-                      {mode === 'consensus' ? 'Consensus' : mode === 'coverage' ? 'Coverage' : 'Name'}
-                    </button>
-                  ))}
+              {filterMode !== 'taste_bridge' && (
+                <div className="flex items-center gap-2">
+                  <span className="text-sm text-ink-500">Sort by:</span>
+                  <div className="flex gap-2">
+                    {(['consensus', 'coverage', 'name'] as SortMode[]).map((mode) => (
+                      <button
+                        key={mode}
+                        onClick={() => setSortMode(mode)}
+                        className={`rounded-full px-3 py-1 text-xs font-medium transition-colors ${
+                          sortMode === mode
+                            ? 'bg-ink-900 text-ink-50'
+                            : 'bg-ink-100 text-ink-500 hover:bg-ink-200'
+                        }`}
+                      >
+                        {mode === 'consensus' ? 'Consensus' : mode === 'coverage' ? 'Coverage' : 'Name'}
+                      </button>
+                    ))}
+                  </div>
                 </div>
-              </div>
+              )}
             </div>
           )}
 
